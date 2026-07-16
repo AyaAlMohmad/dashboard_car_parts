@@ -38,7 +38,7 @@ class SupplierPaymentController extends Controller
             $supplier->status = $supplier->balance > 0 ? 'علينا' : ($supplier->balance < 0 ? 'لنا' : 'متوازن');
             $supplier->save();
 
-            $this->updateSupplierPurchasesStatus($supplier);
+            $this->updateSupplierPurchasesStatus($supplier, $validated['amount']);
 
             return response()->json($payment->load('supplier'), 201);
         });
@@ -57,19 +57,32 @@ class SupplierPaymentController extends Controller
             $supplier->status = $supplier->balance > 0 ? 'علينا' : ($supplier->balance < 0 ? 'لنا' : 'متوازن');
             $supplier->save();
 
+            // إعادة حساب توزيع المدفوعات على المشتريات
+            $this->updateSupplierPurchasesStatus($supplier);
+
             $supplierPayment->delete();
             return response()->json(['message' => 'Deleted successfully']);
         });
     }
 
-    private function updateSupplierPurchasesStatus(Supplier $supplier): void
+    private function updateSupplierPurchasesStatus(Supplier $supplier, ?float $amount = null): void
     {
+        // إذا لم يُمرر amount، نعيد الحساب من الصفر
+        if ($amount === null) {
+            $supplier->purchases()->update([
+                'status' => 'علينا دين',
+                'paid' => 0,
+                'remaining' => DB::raw('`total`'),
+            ]);
+            $amount = $supplier->supplierPayments()->sum('amount');
+        }
+
         $purchases = $supplier->purchases()
             ->where('status', 'علينا دين')
             ->orderBy('purchase_date')
             ->get();
 
-        $available = $supplier->balance < 0 ? abs($supplier->balance) : 0;
+        $available = $amount;
 
         foreach ($purchases as $purchase) {
             if ($available <= 0) break;

@@ -19,6 +19,10 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Storage;
 use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use App\Models\Setting;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
+use App\Mail\BackupMail;
 
 class BackupController extends Controller
 {
@@ -32,7 +36,27 @@ class BackupController extends Controller
     {
         $format = $request->input('format', 'excel');
         Artisan::call('backup:database', ['--format' => $format]);
-        return response()->json(['message' => 'Backup created'], 201);
+
+        $backup = Backup::latest()->first();
+        $emailStatus = null;
+        if ($backup && Setting::get('email_enabled') === '1') {
+            try {
+                $result = $this->sendBackupByEmail($backup);
+                $emailStatus = 'sent';
+            } catch (\Exception $e) {
+                Log::warning('Auto-send email failed: ' . $e->getMessage());
+                $emailStatus = 'failed';
+            }
+        }
+
+        $message = 'تم إنشاء النسخة الاحتياطية';
+        if ($emailStatus === 'sent') {
+            $message .= ' وتم إرسالها بالبريد ✅';
+        } elseif ($emailStatus === 'failed') {
+            $message .= ' (فشل الإرسال بالبريد)';
+        }
+
+        return response()->json(['message' => $message], 201);
     }
 
     public function download(Backup $backup): BinaryFileResponse
@@ -125,6 +149,17 @@ class BackupController extends Controller
         return response()->json(BackupSchedule::orderBy('id', 'desc')->get());
     }
 
+    private function convertInterval(string $interval): array
+    {
+        return match ($interval) {
+            'hourly'  => ['interval_days' => 0, 'interval_hours' => 1, 'interval_minutes' => 0],
+            'daily'   => ['interval_days' => 1, 'interval_hours' => 0, 'interval_minutes' => 0],
+            'weekly'  => ['interval_days' => 7, 'interval_hours' => 0, 'interval_minutes' => 0],
+            'monthly' => ['interval_days' => 30, 'interval_hours' => 0, 'interval_minutes' => 0],
+            default   => ['interval_days' => 1, 'interval_hours' => 0, 'interval_minutes' => 0],
+        };
+    }
+
     public function storeSchedule(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -135,7 +170,8 @@ class BackupController extends Controller
             'enabled'  => 'boolean',
         ]);
 
-        $schedule = BackupSchedule::create($validated);
+        $intervalData = $this->convertInterval($validated['interval']);
+        $schedule = BackupSchedule::create(array_merge($validated, $intervalData));
         return response()->json($schedule, 201);
     }
 
@@ -148,6 +184,11 @@ class BackupController extends Controller
             'interval' => 'in:hourly,daily,weekly,monthly',
             'enabled'  => 'boolean',
         ]);
+
+        if (isset($validated['interval'])) {
+            $validated = array_merge($validated, $this->convertInterval($validated['interval']));
+            unset($validated['interval']);
+        }
 
         $schedule->update($validated);
         return response()->json($schedule);
@@ -175,9 +216,20 @@ class BackupController extends Controller
             'type' => $schedule->type,
             'format' => $schedule->format,
             'interval' => $schedule->interval,
+            'interval_label' => $schedule->intervalLabel(),
             'next_run_at' => $schedule->nextRunAt()->toDateTimeString(),
             'seconds_remaining' => max(0, now()->diffInSeconds($schedule->nextRunAt(), false)),
         ]);
+    }
+
+    public function runSchedule(BackupSchedule $schedule): JsonResponse
+    {
+        Artisan::call('backup:database', [
+            '--format' => $schedule->format,
+            '--type' => $schedule->type,
+        ]);
+        $schedule->update(['last_run_at' => now()]);
+        return response()->json(['message' => 'تم تشغيل الجدولة', 'last_run_at' => now()->toDateTimeString()]);
     }
 
     public function destroy(Backup $backup): JsonResponse
@@ -193,5 +245,97 @@ class BackupController extends Controller
         }
         $backup->delete();
         return response()->json(['message' => 'Backup deleted']);
+    }
+
+    // --- Email Settings ---
+    public function emailSettings(): JsonResponse
+    {
+        return response()->json([
+            'enabled' => (bool) Setting::get('email_enabled', false),
+            'to' => Setting::get('email_to', ''),
+            'smtp_host' => Setting::get('email_smtp_host', ''),
+            'smtp_port' => Setting::get('email_smtp_port', '587'),
+            'smtp_user' => Setting::get('email_smtp_user', ''),
+            'smtp_pass' => Setting::get('email_smtp_pass', '') ? '********' : '',
+            'smtp_encryption' => Setting::get('email_smtp_encryption', 'tls'),
+        ]);
+    }
+
+    public function saveEmailSettings(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'enabled' => 'boolean',
+            'to' => 'required_if:enabled,true|email',
+            'smtp_host' => 'nullable|string',
+            'smtp_port' => 'nullable|string',
+            'smtp_user' => 'nullable|string',
+            'smtp_pass' => 'nullable|string',
+            'smtp_encryption' => 'nullable|string',
+        ]);
+
+        Setting::set('email_enabled', $validated['enabled'] ? '1' : '0');
+        Setting::set('email_to', $validated['to'] ?? '');
+        Setting::set('email_smtp_host', $validated['smtp_host'] ?? '');
+        Setting::set('email_smtp_port', $validated['smtp_port'] ?? '587');
+        Setting::set('email_smtp_user', $validated['smtp_user'] ?? '');
+        Setting::set('email_smtp_encryption', $validated['smtp_encryption'] ?? 'tls');
+        if (!empty($validated['smtp_pass']) && $validated['smtp_pass'] !== '********') {
+            Setting::set('email_smtp_pass', $validated['smtp_pass']);
+        }
+
+        return response()->json(['message' => 'تم حفظ إعدادات البريد']);
+    }
+
+    private function sendBackupByEmail(Backup $backup): JsonResponse
+    {
+        $to = Setting::get('email_to');
+        if (!$to) {
+            Log::warning('Email not sent: no recipient email configured');
+            return response()->json(['message' => 'عنوان البريد غير مُحدد'], 400);
+        }
+
+        $path = Storage::disk('local')->path($backup->path);
+        if (!file_exists($path)) {
+            $path = storage_path('app/' . $backup->path);
+        }
+        if (!file_exists($path)) {
+            Log::warning('Email not sent: backup file not found at ' . $path);
+            return response()->json(['message' => 'ملف النسخة غير موجود'], 404);
+        }
+
+        Log::info('Attempting to send backup email to: ' . $to);
+        Log::info('Backup file path: ' . $path);
+
+        // Apply custom SMTP settings if provided
+        $smtpHost = Setting::get('email_smtp_host');
+        if ($smtpHost) {
+            Log::info('Using custom SMTP: ' . $smtpHost);
+            config([
+                'mail.mailers.smtp.host' => $smtpHost,
+                'mail.mailers.smtp.port' => (int) Setting::get('email_smtp_port', '587'),
+                'mail.mailers.smtp.username' => Setting::get('email_smtp_user', ''),
+                'mail.mailers.smtp.password' => Setting::get('email_smtp_pass', ''),
+                'mail.mailers.smtp.encryption' => Setting::get('email_smtp_encryption', 'tls'),
+                'mail.from.address' => Setting::get('email_smtp_user', $to),
+                'mail.from.name' => 'نظام إدارة متجر قطع السيارات',
+            ]);
+        } else {
+            Log::info('Using default Laravel mail configuration');
+        }
+
+        try {
+            Mail::to($to)->send(new BackupMail($backup, $path));
+            Log::info('Backup email sent successfully to: ' . $to);
+            return response()->json(['message' => '✅ تم إرسال النسخة إلى البريد']);
+        } catch (\Exception $e) {
+            Log::error('Email sending failed: ' . $e->getMessage());
+            Log::error('Email error trace: ' . $e->getTraceAsString());
+            return response()->json(['message' => 'خطأ في الإرسال: ' . $e->getMessage()], 500);
+        }
+    }
+
+    public function sendBackup(Backup $backup): JsonResponse
+    {
+        return $this->sendBackupByEmail($backup);
     }
 }

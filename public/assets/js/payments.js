@@ -3,6 +3,7 @@ let allCustomers = [];
 let _paymentModalOverrides = {};
 
 async function loadPayments() {
+    window.loadPayments = loadPayments;
     try {
         const [paymentsData, customersData] = await Promise.all([
             apiFetch('/payments'),
@@ -25,13 +26,14 @@ function renderPayments() {
     });
     const tbody = document.getElementById('paymentsTableBody');
     if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">💳 لا توجد تسديدات</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">💳 لا توجد تسديدات</div></td></tr>';
         return;
     }
     tbody.innerHTML = filtered.map((p) => {
         return `<tr>
             <td>${p.id}</td>
             <td>${formatDate(p.payment_date)}</td>
+            <td>${formatTime(p.created_at)}</td>
             <td>${p.customer?.name || '؟'}</td>
             <td>${formatCurrency(p.amount)}</td>
             <td>${p.notes || '-'}</td>
@@ -145,6 +147,8 @@ window.savePayment = async function () {
         showToast('تم تسجيل الدفعة ✅');
         closeModal('payModal');
         loadPayments();
+        if (typeof window.loadCustomers === 'function') window.loadCustomers();
+        if (typeof window.loadSales === 'function') window.loadSales();
     } catch (e) {
         showToast('حدث خطأ أثناء الحفظ', 'error');
         console.error(e);
@@ -157,6 +161,8 @@ window.deletePayment = async function (id) {
         await apiFetch('/payments/' + id, { method: 'DELETE' });
         showToast('تم الحذف 🗑️');
         loadPayments();
+        if (typeof window.loadCustomers === 'function') window.loadCustomers();
+        if (typeof window.loadSales === 'function') window.loadSales();
     } catch (e) {
         showToast('حدث خطأ أثناء الحذف', 'error');
         console.error(e);

@@ -1,6 +1,7 @@
 let allCustomers = [];
 
 async function loadCustomers() {
+    window.loadCustomers = loadCustomers;
     try {
         const data = await apiFetch('/customers');
         allCustomers = data.data || [];
@@ -18,7 +19,7 @@ function renderCustomers() {
     );
     const tbody = document.getElementById('customersTableBody');
     if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">👤 لا يوجد عملاء</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state">👤 لا يوجد عملاء</div></td></tr>';
         return;
     }
     tbody.innerHTML = filtered.map((c) => {
@@ -35,6 +36,8 @@ function renderCustomers() {
             <td>${c.address || '-'}</td>
             <td>${formatCurrency(bal)}</td>
             <td>${badge}</td>
+            <td>${formatDate(c.created_at)}</td>
+            <td>${formatTime(c.created_at)}</td>
             <td>
                 <button class="btn btn-outline btn-xs" onclick="editCustomer(${c.id})">✏️</button>
                 <button class="btn btn-danger btn-xs" onclick="deleteCustomer(${c.id})">🗑️</button>
@@ -92,6 +95,8 @@ window.saveCustomer = async function (id) {
         }
         closeModal('custModal');
         loadCustomers();
+        if (typeof window.loadSales === 'function') window.loadSales();
+        if (typeof window.loadPayments === 'function') window.loadPayments();
     } catch (e) {
         showToast('حدث خطأ أثناء الحفظ', 'error');
         console.error(e);
@@ -106,6 +111,8 @@ window.deleteCustomer = async function (id) {
         await apiFetch('/customers/' + id, { method: 'DELETE' });
         showToast('تم الحذف 🗑️');
         loadCustomers();
+        if (typeof window.loadSales === 'function') window.loadSales();
+        if (typeof window.loadPayments === 'function') window.loadPayments();
     } catch (e) {
         showToast('حدث خطأ أثناء الحذف', 'error');
         console.error(e);

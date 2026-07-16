@@ -5,6 +5,7 @@ let _partModalItem = null;
 let _partModalOverrides = {};
 
 async function loadParts() {
+    window.loadParts = loadParts;
     try {
         const [partsData, catsData, suppliersData] = await Promise.all([
             apiFetch('/parts'),
@@ -23,6 +24,20 @@ async function loadParts() {
             catSelect.value = currentVal;
         }
         renderParts();
+
+        // إشعارات المستودع: تنبيه للقطع التي وصلت للحد الأدنى
+        const lowStockItems = allParts.filter(i => i.quantity <= (i.alert_threshold || 5));
+        const badge = document.getElementById('inventoryBadge');
+        if (badge) {
+            badge.textContent = lowStockItems.length;
+            badge.style.display = lowStockItems.length > 0 ? 'inline-block' : 'none';
+        }
+        updateNotifDropdown(lowStockItems);
+        if (lowStockItems.length > 0) {
+            lowStockItems.forEach(item => {
+                showToast(`⚠️ المخزون منخفض: ${item.name} (الكمية: ${item.quantity})`, 'error');
+            });
+        }
     } catch (e) {
         showToast('حدث خطأ أثناء تحميل البيانات', 'error');
         console.error(e);
@@ -39,12 +54,12 @@ function renderParts() {
     });
     const tbody = document.getElementById('partsTableBody');
     if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10"><div class="empty-state">📦 لا توجد قطع</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12"><div class="empty-state">📦 لا توجد قطع</div></td></tr>';
         return;
     }
     tbody.innerHTML = filtered.map((i) => {
-        const low = i.status === 'منخفض' || i.status === 'غير متوفر';
-        return `<tr style="${low ? 'background:#fff5f5' : ''}">
+        const low = i.quantity <= (i.alert_threshold || 5);
+        return `<tr style="${low ? 'background:#ffcccc;color:#900;font-weight:bold;' : ''}">
             <td>${i.id}</td>
             <td><strong>${i.name}</strong></td>
             <td>${i.part_number || '-'}</td>
@@ -54,6 +69,8 @@ function renderParts() {
             <td>${formatCurrency(i.sale_price)}</td>
             <td>${i.supplier || '-'}</td>
             <td>${renderBadge(i.status)}</td>
+            <td>${formatDate(i.created_at)}</td>
+            <td>${formatTime(i.created_at)}</td>
             <td>
                 <button class="btn btn-outline btn-xs" onclick="editPart(${i.id})">✏️</button>
                 <button class="btn btn-danger btn-xs" onclick="deletePart(${i.id})">🗑️</button>
@@ -164,6 +181,8 @@ window.savePart = async function (id) {
         }
         closeModal('partModal');
         loadParts();
+        if (typeof window.loadSales === 'function') window.loadSales();
+        if (typeof window.loadPurchases === 'function') window.loadPurchases();
     } catch (e) {
         showToast('حدث خطأ أثناء الحفظ', 'error');
         console.error(e);
@@ -260,6 +279,8 @@ window.deletePart = async function (id) {
         await apiFetch('/parts/' + id, { method: 'DELETE' });
         showToast('تم الحذف 🗑️');
         loadParts();
+        if (typeof window.loadSales === 'function') window.loadSales();
+        if (typeof window.loadPurchases === 'function') window.loadPurchases();
     } catch (e) {
         showToast('حدث خطأ أثناء الحذف', 'error');
         console.error(e);

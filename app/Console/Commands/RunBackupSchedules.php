@@ -23,32 +23,19 @@ class RunBackupSchedules extends Command
                 $shouldRun = true;
             } else {
                 $last = $schedule->last_run_at;
-                switch ($schedule->interval) {
-                    case 'hourly':
-                        $shouldRun = $last->diffInHours($now) >= 1;
-                        break;
-                    case 'daily':
-                        $shouldRun = $last->diffInDays($now) >= 1;
-                        break;
-                    case 'weekly':
-                        $shouldRun = $last->diffInWeeks($now) >= 1;
-                        break;
-                    case 'monthly':
-                        $shouldRun = $last->diffInMonths($now) >= 1;
-                        break;
+                $intervalMinutes = $schedule->intervalInMinutes();
+                if ($intervalMinutes > 0) {
+                    $shouldRun = $last->diffInMinutes($now) >= $intervalMinutes;
                 }
             }
 
             if ($shouldRun) {
                 $this->info("Running schedule #{$schedule->id} ({$schedule->type} / {$schedule->format})");
 
-                if ($schedule->type === 'full') {
-                    Artisan::call('backup:database', ['--format' => $schedule->format]);
-                } else {
-                    // For single-table exports, we just run the full backup command for now
-                    // Or we could implement a specific table export command
-                    Artisan::call('backup:database', ['--format' => $schedule->format]);
-                }
+                Artisan::call('backup:database', [
+                    '--format' => $schedule->format,
+                    '--type' => $schedule->type,
+                ]);
 
                 $schedule->update(['last_run_at' => $now]);
             }

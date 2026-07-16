@@ -13,6 +13,7 @@
             <button class="btn btn-success" onclick="createBackup('excel')">📥 Excel جديد</button>
             <button class="btn btn-primary" onclick="createBackup('sql')">🗄️ SQL/SQLite جديد</button>
             <button class="btn btn-warning" onclick="openScheduleModal()">⏰ تصدير تلقائي</button>
+            <button class="btn btn-info" onclick="openEmailSettingsModal()">📧 إرسال بالبريد</button>
         </div>
     </div>
 
@@ -39,6 +40,7 @@
                         <th>الصيغة</th>
                         <th>الفترة</th>
                         <th>آخر تشغيل</th>
+                        <th>الوقت</th>
                         <th>الحالة</th>
                         <th>إجراءات</th>
                     </tr>
@@ -59,6 +61,7 @@
                         <th>الصيغة</th>
                         <th>الحجم</th>
                         <th>التاريخ</th>
+                        <th>الوقت</th>
                         <th>إجراءات</th>
                     </tr>
                 </thead>

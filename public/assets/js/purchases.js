@@ -4,6 +4,7 @@ let allParts = [];
 let _purchaseModalOverrides = {};
 
 async function loadPurchases() {
+    window.loadPurchases = loadPurchases;
     try {
         const [purchasesData, suppliersData, partsData] = await Promise.all([
             apiFetch('/purchases'),
@@ -29,13 +30,14 @@ function renderPurchases() {
     });
     const tbody = document.getElementById('purchasesTableBody');
     if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10"><div class="empty-state">📥 لا توجد مشتريات</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11"><div class="empty-state">📥 لا توجد مشتريات</div></td></tr>';
         return;
     }
     tbody.innerHTML = filtered.map((p) => {
         return `<tr>
             <td>${p.id}</td>
             <td>${formatDate(p.purchase_date)}</td>
+            <td>${formatTime(p.created_at)}</td>
             <td>${p.supplier?.name || '؟'}</td>
             <td>${p.part?.name || '؟'}</td>
             <td>${p.quantity}</td>
@@ -193,7 +195,8 @@ window.saveInlinePartPurchase = async function () {
         document.getElementById('inlinePartModal')?.remove();
         openPurchaseModal();
     } catch (e) {
-        showToast('حدث خطأ أثناء الحفظ', 'error');
+        const msg = (e && e.message) ? e.message : (typeof e === 'string' ? e : 'حدث خطأ أثناء الحفظ');
+        showToast(msg, 'error');
         console.error(e);
     }
 };
@@ -218,6 +221,8 @@ window.savePurchase = async function () {
         showToast('تم تسجيل الشراء ✅');
         closeModal('purchaseModal');
         loadPurchases();
+        if (typeof window.loadSuppliers === 'function') window.loadSuppliers();
+        if (typeof window.loadParts === 'function') window.loadParts();
     } catch (e) {
         showToast('حدث خطأ أثناء الحفظ', 'error');
         console.error(e);
@@ -230,6 +235,8 @@ window.deletePurchase = async function (id) {
         await apiFetch('/purchases/' + id, { method: 'DELETE' });
         showToast('تم الحذف 🗑️');
         loadPurchases();
+        if (typeof window.loadSuppliers === 'function') window.loadSuppliers();
+        if (typeof window.loadParts === 'function') window.loadParts();
     } catch (e) {
         showToast('حدث خطأ أثناء الحذف', 'error');
         console.error(e);

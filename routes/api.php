@@ -90,3 +90,9 @@ Route::post('/backup-schedules', [BackupController::class, 'storeSchedule']);
 Route::put('/backup-schedules/{schedule}', [BackupController::class, 'updateSchedule']);
 Route::delete('/backup-schedules/{schedule}', [BackupController::class, 'destroySchedule']);
 Route::get('/backup-schedules/next-run', [BackupController::class, 'nextRun']);
+Route::post('/backup-schedules/{schedule}/run', [BackupController::class, 'runSchedule']);
+
+// Email backup
+Route::get('/backups/email/settings', [BackupController::class, 'emailSettings']);
+Route::post('/backups/email/settings', [BackupController::class, 'saveEmailSettings']);
+Route::post('/backups/{backup}/send-email', [BackupController::class, 'sendBackup']);
