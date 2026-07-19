@@ -10,10 +10,24 @@ window.formatDate = function (dateStr) {
     return d.toLocaleDateString('ar-EG', { year: 'numeric', month: 'short', day: 'numeric' });
 };
 
+<<<<<<< HEAD
 window.formatTime = function (dateStr) {
     if (!dateStr) return '-';
     const d = new Date(dateStr);
     if (isNaN(d)) return '-';
+=======
+window.formatDateTime = function (dateStr) {
+    if (!dateStr) return '-';
+    const d = new Date(dateStr);
+    if (isNaN(d)) return dateStr;
+    return d.toLocaleDateString('ar-EG', { year: 'numeric', month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+};
+
+window.formatTime = function (dateStr) {
+    if (!dateStr) return '-';
+    const d = new Date(dateStr);
+    if (isNaN(d)) return dateStr;
+>>>>>>> 092fd02fa1e4004e138d6f4f84e824e290f61d74
     return d.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
 };
 
@@ -84,7 +98,13 @@ window.apiFetch = async function (url, options = {}) {
         const text = await response.text();
         let err = text;
         try { err = JSON.parse(text); } catch (e) {}
-        throw err;
+        // استخراج رسائل Laravel validation
+        let msg = typeof err === 'string' ? err : (err.message || 'حدث خطأ');
+        if (err && err.errors) {
+            const firstErrors = Object.values(err.errors).flat();
+            if (firstErrors.length > 0) msg = firstErrors.join(' | ');
+        }
+        throw new Error(msg);
     }
     if (response.status === 204) return null;
     return response.json();
@@ -137,6 +157,46 @@ window.exportTable = async function (table, format) {
         console.error(e);
     }
 };
+
+window.toggleNotifDropdown = function () {
+    const el = document.getElementById('notifDropdown');
+    if (!el) return;
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+};
+
+window.updateNotifDropdown = function (items) {
+    const list = document.getElementById('notifList');
+    const badge = document.getElementById('notifBadge');
+    if (!list || !badge) return;
+    if (items.length === 0) {
+        list.innerHTML = '<div class="notif-empty">لا توجد تنبيهات حالياً</div>';
+        badge.style.display = 'none';
+        return;
+    }
+    badge.textContent = items.length;
+    badge.style.display = 'flex';
+    list.innerHTML = items.map(i => `<div class="notif-item">
+        <span>⚠️ <strong>${i.name}</strong> — كمية: ${i.quantity}</span>
+        <span class="badge badge-danger">منخفض</span>
+    </div>`).join('');
+};
+
+window.loadInventoryNotifications = async function () {
+    try {
+        const data = await apiFetch('/parts');
+        const parts = data.data || [];
+        const lowStockItems = parts.filter(i => i.quantity <= (i.alert_threshold || 5));
+        const badge = document.getElementById('inventoryBadge');
+        if (badge) {
+            badge.textContent = lowStockItems.length;
+            badge.style.display = lowStockItems.length > 0 ? 'inline-block' : 'none';
+        }
+        updateNotifDropdown(lowStockItems);
+    } catch (e) {
+        console.error(e);
+    }
+};
+loadInventoryNotifications();
 
 // Mobile menu
 (function () {

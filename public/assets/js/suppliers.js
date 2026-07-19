@@ -1,6 +1,7 @@
 let allSuppliers = [];
 
 async function loadSuppliers() {
+    window.loadSuppliers = loadSuppliers;
     try {
         const data = await apiFetch('/suppliers');
         allSuppliers = data.data || [];
@@ -87,6 +88,8 @@ window.saveSupplier = async function (id) {
         }
         closeModal('supModal');
         loadSuppliers();
+        if (typeof window.loadPurchases === 'function') window.loadPurchases();
+        if (typeof window.loadSupplierPayments === 'function') window.loadSupplierPayments();
     } catch (e) {
         showToast('حدث خطأ أثناء الحفظ', 'error');
         console.error(e);
@@ -101,6 +104,8 @@ window.deleteSupplier = async function (id) {
         await apiFetch('/suppliers/' + id, { method: 'DELETE' });
         showToast('تم الحذف 🗑️');
         loadSuppliers();
+        if (typeof window.loadPurchases === 'function') window.loadPurchases();
+        if (typeof window.loadSupplierPayments === 'function') window.loadSupplierPayments();
     } catch (e) {
         showToast('حدث خطأ أثناء الحذف', 'error');
         console.error(e);

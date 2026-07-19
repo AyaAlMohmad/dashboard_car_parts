@@ -1,6 +1,7 @@
 let allCustomers = [];
 
 async function loadCustomers() {
+    window.loadCustomers = loadCustomers;
     try {
         const data = await apiFetch('/customers');
         allCustomers = data.data || [];
@@ -94,6 +95,8 @@ window.saveCustomer = async function (id) {
         }
         closeModal('custModal');
         loadCustomers();
+        if (typeof window.loadSales === 'function') window.loadSales();
+        if (typeof window.loadPayments === 'function') window.loadPayments();
     } catch (e) {
         showToast('حدث خطأ أثناء الحفظ', 'error');
         console.error(e);
@@ -108,6 +111,8 @@ window.deleteCustomer = async function (id) {
         await apiFetch('/customers/' + id, { method: 'DELETE' });
         showToast('تم الحذف 🗑️');
         loadCustomers();
+        if (typeof window.loadSales === 'function') window.loadSales();
+        if (typeof window.loadPayments === 'function') window.loadPayments();
     } catch (e) {
         showToast('حدث خطأ أثناء الحذف', 'error');
         console.error(e);

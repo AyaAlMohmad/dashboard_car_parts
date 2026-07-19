@@ -54,7 +54,11 @@ function renderParts() {
     });
     const tbody = document.getElementById('partsTableBody');
     if (filtered.length === 0) {
+<<<<<<< HEAD
         tbody.innerHTML = '<tr><td colspan="14"><div class="empty-state">📦 لا توجد قطع</div></td></tr>';
+=======
+        tbody.innerHTML = '<tr><td colspan="12"><div class="empty-state">📦 لا توجد قطع</div></td></tr>';
+>>>>>>> 092fd02fa1e4004e138d6f4f84e824e290f61d74
         return;
     }
     tbody.innerHTML = filtered.map((i) => {

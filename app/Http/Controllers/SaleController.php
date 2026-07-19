@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Customer;
 use App\Models\Part;
+use App\Models\Payment;
 use App\Models\Sale;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -70,6 +71,17 @@ class SaleController extends Controller
             $customer->status = $customer->balance < 0 ? 'مدين' : 'متوان';
             $customer->save();
 
+            // تسجيل الدفعة في جدول التسديدات إذا كان هناك مبلغ مدفوع
+            if ($paid > 0) {
+                Payment::create([
+                    'customer_id' => $validated['customer_id'],
+                    'sale_id' => $sale->id,
+                    'amount' => $paid,
+                    'notes' => 'دفعة من عملية بيع #' . $sale->id,
+                    'payment_date' => $validated['sale_date'],
+                ]);
+            }
+
             return response()->json($sale->load(['customer', 'part']), 201);
         });
     }
@@ -86,9 +98,9 @@ class SaleController extends Controller
             $part = Part::find($sale->part_id);
             $part->increment('quantity', $sale->quantity);
 
-            // إرجاع الرصيد للعميل
+            // إرجاع الرصيد الكلي للعميل (المدفوع + المتبقي) لأن التسديد المرتبط سيُحذف تلقائياً
             $customer = Customer::find($sale->customer_id);
-            $customer->balance += $sale->remaining;
+            $customer->balance += $sale->total;
             $customer->status = $customer->balance < 0 ? 'مدين' : 'متوان';
             $customer->save();
 
