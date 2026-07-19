@@ -6,32 +6,26 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class Sale extends Model
+class InvoiceItem extends Model
 {
     use HasFactory;
 
     protected $fillable = [
-        'customer_id',
+        'invoice_id',
         'part_id',
         'quantity',
+        'unit_price',
         'total',
-        'paid',
-        'remaining',
-        'status',
-        'notes',
-        'sale_date',
     ];
 
     protected $casts = [
+        'unit_price' => 'decimal:2',
         'total' => 'decimal:2',
-        'paid' => 'decimal:2',
-        'remaining' => 'decimal:2',
-        'sale_date' => 'date',
     ];
 
-    public function customer(): BelongsTo
+    public function invoice(): BelongsTo
     {
-        return $this->belongsTo(Customer::class);
+        return $this->belongsTo(Invoice::class);
     }
 
     public function part(): BelongsTo

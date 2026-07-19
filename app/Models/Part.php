@@ -18,6 +18,8 @@ class Part extends Model
         'quantity',
         'purchase_price',
         'sale_price',
+        'purchase_price_usd',
+        'sale_price_usd',
         'supplier',
         'alert_threshold',
         'status',
@@ -26,6 +28,8 @@ class Part extends Model
     protected $casts = [
         'purchase_price' => 'decimal:2',
         'sale_price' => 'decimal:2',
+        'purchase_price_usd' => 'decimal:2',
+        'sale_price_usd' => 'decimal:2',
     ];
 
     protected static function boot(): void
@@ -51,5 +55,10 @@ class Part extends Model
     public function sales(): HasMany
     {
         return $this->hasMany(Sale::class);
+    }
+
+    public function invoiceItems(): HasMany
+    {
+        return $this->hasMany(InvoiceItem::class);
     }
 }

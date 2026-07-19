@@ -1,6 +1,6 @@
-window.formatCurrency = function (amount) {
-    if (amount === null || amount === undefined) return '0 SP';
-    return parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' SP';
+window.formatCurrency = function (amount, symbol = 'ل.س') {
+    if (amount === null || amount === undefined) return '0 ' + symbol;
+    return parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' ' + symbol;
 };
 
 window.formatDate = function (dateStr) {
@@ -8,6 +8,13 @@ window.formatDate = function (dateStr) {
     const d = new Date(dateStr);
     if (isNaN(d)) return dateStr;
     return d.toLocaleDateString('ar-EG', { year: 'numeric', month: 'short', day: 'numeric' });
+};
+
+window.formatTime = function (dateStr) {
+    if (!dateStr) return '-';
+    const d = new Date(dateStr);
+    if (isNaN(d)) return '-';
+    return d.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
 };
 
 window.showToast = function (message, type = 'success') {
@@ -18,6 +25,40 @@ window.showToast = function (message, type = 'success') {
     toast.textContent = message;
     container.appendChild(toast);
     setTimeout(() => toast.remove(), 3000);
+};
+
+window.toggleNotifDropdown = function () {
+    const dd = document.getElementById('notifDropdown');
+    if (!dd) return;
+    dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+};
+
+document.addEventListener('click', function (e) {
+    const bell = document.getElementById('notifBell');
+    const dd = document.getElementById('notifDropdown');
+    if (!bell || !dd) return;
+    if (!bell.contains(e.target) && !dd.contains(e.target)) {
+        dd.style.display = 'none';
+    }
+});
+
+window.updateNotifDropdown = function (items) {
+    const badge = document.getElementById('notifBadge');
+    const list = document.getElementById('notifList');
+    if (!badge || !list) return;
+    if (items && items.length > 0) {
+        badge.textContent = items.length;
+        badge.style.display = 'flex';
+        list.innerHTML = items.map(i => `
+            <div class="notif-item">
+                <div class="notif-dot"></div>
+                <div><strong>${i.name}</strong> — الكمية: ${i.quantity}</div>
+            </div>
+        `).join('');
+    } else {
+        badge.style.display = 'none';
+        list.innerHTML = '<div class="notif-item empty">✅ لا توجد تنبيهات</div>';
+    }
 };
 
 window.closeModal = function (id) {
@@ -58,6 +99,18 @@ window.renderBadge = function (status) {
     if (status === 'مسدد') return '<span class="badge badge-success">مسدد</span>';
     if (status === 'عليه دين') return '<span class="badge badge-danger">عليه دين</span>';
     return '<span class="badge badge-info">' + status + '</span>';
+};
+
+window.showModal = function (title, bodyHtml) {
+    const html = `
+        <div class="modal-overlay" id="genericModal">
+            <div class="modal">
+                <div class="modal-header"><h3>${title}</h3><button class="modal-close" onclick="closeModal('genericModal')">✕</button></div>
+                <div class="modal-body">${bodyHtml}</div>
+                <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal('genericModal')">إغلاق</button></div>
+            </div>
+        </div>`;
+    document.getElementById('modalContainer').innerHTML = html;
 };
 
 window.exportTable = async function (table, format) {

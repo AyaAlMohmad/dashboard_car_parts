@@ -5,6 +5,7 @@ let _partModalItem = null;
 let _partModalOverrides = {};
 
 async function loadParts() {
+    window.loadParts = loadParts;
     try {
         const [partsData, catsData, suppliersData] = await Promise.all([
             apiFetch('/parts'),
@@ -23,6 +24,20 @@ async function loadParts() {
             catSelect.value = currentVal;
         }
         renderParts();
+
+        // إشعارات المستودع: تنبيه للقطع التي وصلت للحد الأدنى
+        const lowStockItems = allParts.filter(i => i.quantity <= (i.alert_threshold || 5));
+        const badge = document.getElementById('inventoryBadge');
+        if (badge) {
+            badge.textContent = lowStockItems.length;
+            badge.style.display = lowStockItems.length > 0 ? 'inline-block' : 'none';
+        }
+        updateNotifDropdown(lowStockItems);
+        if (lowStockItems.length > 0) {
+            lowStockItems.forEach(item => {
+                showToast(`⚠️ المخزون منخفض: ${item.name} (الكمية: ${item.quantity})`, 'error');
+            });
+        }
     } catch (e) {
         showToast('حدث خطأ أثناء تحميل البيانات', 'error');
         console.error(e);
@@ -39,21 +54,25 @@ function renderParts() {
     });
     const tbody = document.getElementById('partsTableBody');
     if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10"><div class="empty-state">📦 لا توجد قطع</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="14"><div class="empty-state">📦 لا توجد قطع</div></td></tr>';
         return;
     }
     tbody.innerHTML = filtered.map((i) => {
-        const low = i.status === 'منخفض' || i.status === 'غير متوفر';
-        return `<tr style="${low ? 'background:#fff5f5' : ''}">
+        const low = i.quantity <= (i.alert_threshold || 5);
+        return `<tr style="${low ? 'background:#ffcccc;color:#900;font-weight:bold;' : ''}">
             <td>${i.id}</td>
             <td><strong>${i.name}</strong></td>
             <td>${i.part_number || '-'}</td>
             <td><span class="badge badge-info">${i.category?.name || 'أخرى'}</span></td>
             <td>${i.quantity}</td>
-            <td>${formatCurrency(i.purchase_price)}</td>
-            <td>${formatCurrency(i.sale_price)}</td>
+            <td>${formatCurrency(i.purchase_price, 'ل.س')}</td>
+            <td>${formatCurrency(i.sale_price, 'ل.س')}</td>
+            <td>${i.purchase_price_usd ? formatCurrency(i.purchase_price_usd, '$') : '-'}</td>
+            <td>${i.sale_price_usd ? formatCurrency(i.sale_price_usd, '$') : '-'}</td>
             <td>${i.supplier || '-'}</td>
             <td>${renderBadge(i.status)}</td>
+            <td>${formatDate(i.created_at)}</td>
+            <td>${formatTime(i.created_at)}</td>
             <td>
                 <button class="btn btn-outline btn-xs" onclick="editPart(${i.id})">✏️</button>
                 <button class="btn btn-danger btn-xs" onclick="deletePart(${i.id})">🗑️</button>
@@ -72,6 +91,8 @@ function cachePartModalState(item) {
         alert: document.getElementById('partAlert')?.value || '',
         purchasePrice: document.getElementById('partPurchasePrice')?.value || '',
         salePrice: document.getElementById('partSalePrice')?.value || '',
+        purchasePriceUsd: document.getElementById('partPurchasePriceUsd')?.value || '',
+        salePriceUsd: document.getElementById('partSalePriceUsd')?.value || '',
         supplier: document.getElementById('partSupplier')?.value || '',
     };
 }
@@ -85,6 +106,8 @@ function restorePartModalState() {
     if (ov.alert !== undefined) document.getElementById('partAlert').value = ov.alert;
     if (ov.purchasePrice !== undefined) document.getElementById('partPurchasePrice').value = ov.purchasePrice;
     if (ov.salePrice !== undefined) document.getElementById('partSalePrice').value = ov.salePrice;
+    if (ov.purchasePriceUsd !== undefined) document.getElementById('partPurchasePriceUsd').value = ov.purchasePriceUsd;
+    if (ov.salePriceUsd !== undefined) document.getElementById('partSalePriceUsd').value = ov.salePriceUsd;
     if (ov.supplier !== undefined) document.getElementById('partSupplier').value = ov.supplier;
     _partModalOverrides = {};
 }
@@ -115,8 +138,12 @@ window.openPartModal = function (item = null) {
                         <div class="form-group"><label>حد التنبيه</label><input type="number" id="partAlert" value="${isEdit ? item.alert_threshold || 5 : 5}" min="1"></div>
                     </div>
                     <div class="form-row">
-                        <div class="form-group"><label>سعر الشراء</label><input type="number" id="partPurchasePrice" value="${isEdit ? item.purchase_price || 0 : 0}" step="0.01"></div>
-                        <div class="form-group"><label>سعر البيع *</label><input type="number" id="partSalePrice" value="${isEdit ? item.sale_price || 0 : 0}" step="0.01"></div>
+                        <div class="form-group"><label>سعر الشراء (ل.س)</label><input type="number" id="partPurchasePrice" value="${isEdit ? item.purchase_price || 0 : 0}" step="0.01"></div>
+                        <div class="form-group"><label>سعر البيع (ل.س) *</label><input type="number" id="partSalePrice" value="${isEdit ? item.sale_price || 0 : 0}" step="0.01"></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>سعر الشراء ($)</label><input type="number" id="partPurchasePriceUsd" value="${isEdit ? item.purchase_price_usd || 0 : 0}" step="0.01"></div>
+                        <div class="form-group"><label>سعر البيع ($)</label><input type="number" id="partSalePriceUsd" value="${isEdit ? item.sale_price_usd || 0 : 0}" step="0.01"></div>
                     </div>
                     <div class="form-group" style="display:flex;align-items:flex-end;gap:6px;">
                         <div style="flex:1;">
@@ -151,9 +178,11 @@ window.savePart = async function (id) {
     const purchase_price = parseFloat(document.getElementById('partPurchasePrice')?.value) || 0;
     const sale_price = parseFloat(document.getElementById('partSalePrice')?.value) || 0;
     if (sale_price <= 0) { showToast('سعر البيع مطلوب', 'error'); return; }
+    const purchase_price_usd = parseFloat(document.getElementById('partPurchasePriceUsd')?.value) || 0;
+    const sale_price_usd = parseFloat(document.getElementById('partSalePriceUsd')?.value) || 0;
     const supplier = document.getElementById('partSupplier')?.value || '';
 
-    const payload = { name, part_number, category_id, quantity, alert_threshold, purchase_price, sale_price, supplier };
+    const payload = { name, part_number, category_id, quantity, alert_threshold, purchase_price, sale_price, purchase_price_usd, sale_price_usd, supplier };
     try {
         if (id) {
             await apiFetch('/parts/' + id, { method: 'PUT', body: JSON.stringify(payload) });
@@ -164,6 +193,8 @@ window.savePart = async function (id) {
         }
         closeModal('partModal');
         loadParts();
+        if (typeof window.loadSales === 'function') window.loadSales();
+        if (typeof window.loadPurchases === 'function') window.loadPurchases();
     } catch (e) {
         showToast('حدث خطأ أثناء الحفظ', 'error');
         console.error(e);
@@ -260,6 +291,8 @@ window.deletePart = async function (id) {
         await apiFetch('/parts/' + id, { method: 'DELETE' });
         showToast('تم الحذف 🗑️');
         loadParts();
+        if (typeof window.loadSales === 'function') window.loadSales();
+        if (typeof window.loadPurchases === 'function') window.loadPurchases();
     } catch (e) {
         showToast('حدث خطأ أثناء الحذف', 'error');
         console.error(e);

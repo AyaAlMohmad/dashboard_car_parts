@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Customer;
+use App\Models\Invoice;
 use App\Models\Part;
 use App\Models\Purchase;
 use App\Models\Sale;
@@ -19,14 +20,14 @@ class DashboardController extends Controller
             'suppliers_count' => Supplier::count(),
             'parts_count' => Part::count(),
             'parts_low_stock' => Part::whereIn('status', ['منخفض', 'غير متوفر'])->count(),
-            'sales_total' => Sale::sum('total'),
-            'sales_paid' => Sale::sum('paid'),
-            'debts' => Sale::where('status', 'عليه دين')->sum('remaining'),
+            'sales_total' => Invoice::sum('total'),
+            'sales_paid' => Invoice::sum('paid'),
+            'debts' => Invoice::where('status', 'عليه دين')->sum('remaining'),
             'purchases_total' => Purchase::sum('total'),
             'supplier_debts' => Purchase::where('status', 'علينا دين')->sum('remaining'),
         ];
 
-        $recentSales = Sale::with(['customer', 'part'])
+        $recentSales = Invoice::with(['customer', 'items.part'])
             ->latest()
             ->take(10)
             ->get();

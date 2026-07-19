@@ -1,19 +1,19 @@
 @extends('layouts.app')
 
-@section('title', 'المبيعات والديون - نظام قطع السيارات')
+@section('title', 'الفواتير والمبيعات - نظام قطع السيارات')
 
 @section('content')
 <div class="page active">
     <div class="page-header">
         <div>
-            <h1>💰 المبيعات والديون</h1>
-            <span class="subtitle">تسجيل مبيعات القطع وتتبع الديون</span>
+            <h1>🧾 الفواتير والمبيعات</h1>
+            <span class="subtitle">فواتير متعددة القطع مع دعم الدولار والليرة</span>
         </div>
-        <button class="btn btn-primary" onclick="openSaleModal()">🛒 تسجيل عملية بيع</button>
+        <button class="btn btn-primary" onclick="openInvoiceModal()">🧾 فاتورة جديدة</button>
     </div>
     <div class="table-container">
         <div class="table-toolbar">
-            <input type="text" class="search-input" placeholder="🔍 بحث..." id="saleSearch" oninput="renderSales()">
+            <input type="text" class="search-input" placeholder="🔍 بحث (اسم العميل أو القطعة)..." id="invoiceSearch" oninput="renderInvoices()">
             <div class="export-group">
                 <select id="exportFormat_sales">
                     <option value="excel">Excel</option>
@@ -26,19 +26,19 @@
             <table>
                 <thead>
                     <tr>
-                        <th>#</th>
+                        <th>رقم الفاتورة</th>
                         <th>التاريخ</th>
                         <th>العميل</th>
-                        <th>القطعة</th>
-                        <th>الكمية</th>
+                        <th>القطع</th>
                         <th>الإجمالي</th>
                         <th>المدفوع</th>
                         <th>المتبقي</th>
                         <th>الحالة</th>
+                        <th>ملاحظات</th>
                         <th>الإجراءات</th>
                     </tr>
                 </thead>
-                <tbody id="salesTableBody"></tbody>
+                <tbody id="invoicesTableBody"></tbody>
             </table>
         </div>
     </div>
@@ -46,5 +46,5 @@
 @endsection
 
 @push('scripts')
-<script src="{{ asset('assets/js/sales.js') }}"></script>
+<script src="{{ asset('assets/js/invoices.js') }}"></script>
 @endpush

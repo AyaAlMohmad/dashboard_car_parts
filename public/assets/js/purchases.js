@@ -4,6 +4,7 @@ let allParts = [];
 let _purchaseModalOverrides = {};
 
 async function loadPurchases() {
+    window.loadPurchases = loadPurchases;
     try {
         const [purchasesData, suppliersData, partsData] = await Promise.all([
             apiFetch('/purchases'),
@@ -29,13 +30,14 @@ function renderPurchases() {
     });
     const tbody = document.getElementById('purchasesTableBody');
     if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10"><div class="empty-state">📥 لا توجد مشتريات</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11"><div class="empty-state">📥 لا توجد مشتريات</div></td></tr>';
         return;
     }
     tbody.innerHTML = filtered.map((p) => {
         return `<tr>
             <td>${p.id}</td>
             <td>${formatDate(p.purchase_date)}</td>
+            <td>${formatTime(p.created_at)}</td>
             <td>${p.supplier?.name || '؟'}</td>
             <td>${p.part?.name || '؟'}</td>
             <td>${p.quantity}</td>
@@ -53,7 +55,8 @@ function renderPurchases() {
 function cachePurchaseModalState() {
     _purchaseModalOverrides = {
         supplier: document.getElementById('purchaseSupplier')?.value || '',
-        part: document.getElementById('purchasePart')?.value || '',
+        partSearch: document.getElementById('purchasePartSearch')?.value || '',
+        partId: document.getElementById('purchasePartId')?.value || '',
         qty: document.getElementById('purchaseQty')?.value || '',
         date: document.getElementById('purchaseDate')?.value || '',
         paid: document.getElementById('purchasePaid')?.value || '',
@@ -62,7 +65,8 @@ function cachePurchaseModalState() {
 function restorePurchaseModalState() {
     const ov = _purchaseModalOverrides;
     if (ov.supplier !== undefined && document.getElementById('purchaseSupplier')) document.getElementById('purchaseSupplier').value = ov.supplier;
-    if (ov.part !== undefined && document.getElementById('purchasePart')) document.getElementById('purchasePart').value = ov.part;
+    if (ov.partSearch !== undefined && document.getElementById('purchasePartSearch')) document.getElementById('purchasePartSearch').value = ov.partSearch;
+    if (ov.partId !== undefined && document.getElementById('purchasePartId')) document.getElementById('purchasePartId').value = ov.partId;
     if (ov.qty !== undefined && document.getElementById('purchaseQty')) document.getElementById('purchaseQty').value = ov.qty;
     if (ov.date !== undefined && document.getElementById('purchaseDate')) document.getElementById('purchaseDate').value = ov.date;
     if (ov.paid !== undefined && document.getElementById('purchasePaid')) document.getElementById('purchasePaid').value = ov.paid;
@@ -71,7 +75,6 @@ function restorePurchaseModalState() {
 
 window.openPurchaseModal = function () {
     const supplierOpts = allSuppliers.map((s) => `<option value="${s.id}">${s.name}</option>`).join('');
-    const partOpts = allParts.map((p) => `<option value="${p.id}">${p.name} (${p.part_number || 'بدون رقم'})</option>`).join('');
     const today = new Date().toISOString().split('T')[0];
 
     const html = `
@@ -84,10 +87,13 @@ window.openPurchaseModal = function () {
                             <div style="flex:1;"><label>المورد *</label><select id="purchaseSupplier">${supplierOpts}</select></div>
                             <button class="btn btn-success btn-xs" style="margin-bottom:0;height:38px;" onclick="addSupplierInlinePurchase()" title="إضافة مورد">➕</button>
                         </div>
-                        <div class="form-group" style="display:flex;align-items:flex-end;gap:6px;">
-                            <div style="flex:1;"><label>القطعة *</label><select id="purchasePart">${partOpts}</select></div>
-                            <button class="btn btn-success btn-xs" style="margin-bottom:0;height:38px;" onclick="addPartInlinePurchase()" title="إضافة قطعة">➕</button>
-                        </div>
+                    </div>
+                    <div class="form-group" style="position:relative;">
+                        <label>القطعة *</label>
+                        <input type="text" id="purchasePartSearch" placeholder="اكتب اسم أو رقم القطعة..." oninput="searchPurchaseParts()" autocomplete="off">
+                        <div id="purchasePartResults" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow-lg);z-index:100;max-height:200px;overflow-y:auto;"></div>
+                        <input type="hidden" id="purchasePartId">
+                        <button class="btn btn-success btn-xs" style="margin-top:6px;" onclick="addPartInlinePurchase()" title="إضافة قطعة جديدة">➕ قطعة جديدة</button>
                     </div>
                     <div class="form-row">
                         <div class="form-group"><label>الكمية *</label><input type="number" id="purchaseQty" value="1" min="1"></div>
@@ -104,6 +110,39 @@ window.openPurchaseModal = function () {
     document.getElementById('modalContainer').innerHTML = html;
     restorePurchaseModalState();
 };
+
+function searchPurchaseParts() {
+    const q = document.getElementById('purchasePartSearch')?.value.toLowerCase() || '';
+    const results = document.getElementById('purchasePartResults');
+    if (!q || q.length < 1) {
+        results.style.display = 'none';
+        return;
+    }
+    const matches = allParts.filter(p =>
+        p.name.toLowerCase().includes(q) ||
+        (p.part_number || '').toLowerCase().includes(q)
+    ).slice(0, 8);
+
+    if (matches.length === 0) {
+        results.innerHTML = '<div style="padding:10px;color:var(--text-light);">لا توجد نتائج</div>';
+    } else {
+        results.innerHTML = matches.map(p => {
+            return `<div style="padding:10px;cursor:pointer;border-bottom:1px solid var(--border);" onclick="selectPurchasePart(${p.id}, '${p.name.replace(/'/g, "\\'")}')">
+                <strong>${p.name}</strong> <small style="color:var(--text-light);">(${p.part_number || 'بدون رقم'})</small>
+                <div style="font-size:12px;color:var(--text-light);">متاح: ${p.quantity}</div>
+            </div>`;
+        }).join('');
+    }
+    results.style.display = 'block';
+}
+
+function selectPurchasePart(id, name) {
+    document.getElementById('purchasePartSearch').value = name;
+    document.getElementById('purchasePartId').value = id;
+    document.getElementById('purchasePartResults').style.display = 'none';
+}
+
+window.clickPurchasePart = selectPurchasePart;
 
 window.addSupplierInlinePurchase = function () {
     cachePurchaseModalState();
@@ -193,20 +232,21 @@ window.saveInlinePartPurchase = async function () {
         document.getElementById('inlinePartModal')?.remove();
         openPurchaseModal();
     } catch (e) {
-        showToast('حدث خطأ أثناء الحفظ', 'error');
+        const msg = (e && e.message) ? e.message : (typeof e === 'string' ? e : 'حدث خطأ أثناء الحفظ');
+        showToast(msg, 'error');
         console.error(e);
     }
 };
 
 window.savePurchase = async function () {
     const supplier_id = document.getElementById('purchaseSupplier')?.value;
-    const part_id = document.getElementById('purchasePart')?.value;
+    const part_id = document.getElementById('purchasePartId')?.value;
     const quantity = parseInt(document.getElementById('purchaseQty')?.value) || 0;
     const purchase_date = document.getElementById('purchaseDate')?.value;
     const paid = parseFloat(document.getElementById('purchasePaid')?.value) || 0;
 
     if (!supplier_id || !part_id || quantity < 1 || !purchase_date) {
-        showToast('جميع الحقول المطلوبة يجب ملؤها', 'error');
+        showToast('جميع الحقول المطلوبة يجب ملؤها (المورد، القطعة، الكمية، التاريخ)', 'error');
         return;
     }
 
@@ -218,6 +258,8 @@ window.savePurchase = async function () {
         showToast('تم تسجيل الشراء ✅');
         closeModal('purchaseModal');
         loadPurchases();
+        if (typeof window.loadSuppliers === 'function') window.loadSuppliers();
+        if (typeof window.loadParts === 'function') window.loadParts();
     } catch (e) {
         showToast('حدث خطأ أثناء الحفظ', 'error');
         console.error(e);
@@ -230,6 +272,8 @@ window.deletePurchase = async function (id) {
         await apiFetch('/purchases/' + id, { method: 'DELETE' });
         showToast('تم الحذف 🗑️');
         loadPurchases();
+        if (typeof window.loadSuppliers === 'function') window.loadSuppliers();
+        if (typeof window.loadParts === 'function') window.loadParts();
     } catch (e) {
         showToast('حدث خطأ أثناء الحذف', 'error');
         console.error(e);

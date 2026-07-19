@@ -48,9 +48,9 @@
   function formatCurrency(amount) {
     return (
       parseFloat(amount || 0).toLocaleString("ar-EG", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }) + " ج.م"
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+      }) + " ل.س"
     );
   }
 

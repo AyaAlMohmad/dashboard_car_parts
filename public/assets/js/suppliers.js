@@ -18,15 +18,15 @@ function renderSuppliers() {
     );
     const tbody = document.getElementById('suppliersTableBody');
     if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">🏭 لا يوجد موردين</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state">🏭 لا يوجد موردين</div></td></tr>';
         return;
     }
     tbody.innerHTML = filtered.map((s) => {
         const bal = s.balance || 0;
         let badge = bal > 0
-            ? '<span class="badge badge-danger">علينا ' + formatCurrency(bal) + ' SP</span>'
+            ? '<span class="badge badge-danger">علينا ' + formatCurrency(bal) + ' ل.س</span>'
             : bal < 0
-                ? '<span class="badge badge-success">لنا ' + formatCurrency(Math.abs(bal)) + ' SP</span>'
+                ? '<span class="badge badge-success">لنا ' + formatCurrency(Math.abs(bal)) + ' ل.س</span>'
                 : '<span class="badge badge-info">متوازن</span>';
         return `<tr>
             <td>${s.id}</td>
@@ -35,6 +35,8 @@ function renderSuppliers() {
             <td>${s.address || '-'}</td>
             <td>${formatCurrency(bal)}</td>
             <td>${badge}</td>
+            <td>${formatDate(s.created_at)}</td>
+            <td>${formatTime(s.created_at)}</td>
             <td>
                 <button class="btn btn-outline btn-xs" onclick="editSupplier(${s.id})">✏️</button>
                 <button class="btn btn-danger btn-xs" onclick="deleteSupplier(${s.id})">🗑️</button>

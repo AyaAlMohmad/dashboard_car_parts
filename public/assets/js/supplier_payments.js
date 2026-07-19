@@ -3,6 +3,7 @@ let allSuppliers = [];
 let _supPayModalOverrides = {};
 
 async function loadSupplierPayments() {
+    window.loadSupplierPayments = loadSupplierPayments;
     try {
         const [paymentsData, suppliersData] = await Promise.all([
             apiFetch('/supplier-payments'),
@@ -25,13 +26,14 @@ function renderSupplierPayments() {
     });
     const tbody = document.getElementById('supplierPaymentsTableBody');
     if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">💳 لا توجد دفعات</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">💳 لا توجد دفعات</div></td></tr>';
         return;
     }
     tbody.innerHTML = filtered.map((p) => {
         return `<tr>
             <td>${p.id}</td>
             <td>${formatDate(p.payment_date)}</td>
+            <td>${formatTime(p.created_at)}</td>
             <td>${p.supplier?.name || '؟'}</td>
             <td>${formatCurrency(p.amount)}</td>
             <td>${p.notes || '-'}</td>
@@ -145,6 +147,8 @@ window.saveSupplierPayment = async function () {
         showToast('تم تسجيل الدفعة ✅');
         closeModal('supPayModal');
         loadSupplierPayments();
+        if (typeof window.loadSuppliers === 'function') window.loadSuppliers();
+        if (typeof window.loadPurchases === 'function') window.loadPurchases();
     } catch (e) {
         showToast('حدث خطأ أثناء الحفظ', 'error');
         console.error(e);
@@ -157,6 +161,8 @@ window.deleteSupplierPayment = async function (id) {
         await apiFetch('/supplier-payments/' + id, { method: 'DELETE' });
         showToast('تم الحذف 🗑️');
         loadSupplierPayments();
+        if (typeof window.loadSuppliers === 'function') window.loadSuppliers();
+        if (typeof window.loadPurchases === 'function') window.loadPurchases();
     } catch (e) {
         showToast('حدث خطأ أثناء الحذف', 'error');
         console.error(e);

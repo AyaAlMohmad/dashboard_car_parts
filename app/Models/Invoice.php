@@ -5,19 +5,21 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class Sale extends Model
+class Invoice extends Model
 {
     use HasFactory;
 
     protected $fillable = [
         'customer_id',
-        'part_id',
-        'quantity',
+        'invoice_number',
         'total',
         'paid',
         'remaining',
         'status',
+        'currency',
+        'exchange_rate',
         'notes',
         'sale_date',
     ];
@@ -26,6 +28,7 @@ class Sale extends Model
         'total' => 'decimal:2',
         'paid' => 'decimal:2',
         'remaining' => 'decimal:2',
+        'exchange_rate' => 'decimal:2',
         'sale_date' => 'date',
     ];
 
@@ -34,8 +37,8 @@ class Sale extends Model
         return $this->belongsTo(Customer::class);
     }
 
-    public function part(): BelongsTo
+    public function items(): HasMany
     {
-        return $this->belongsTo(Part::class);
+        return $this->hasMany(InvoiceItem::class);
     }
 }

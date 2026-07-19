@@ -43,8 +43,8 @@ class PaymentController extends Controller
             $customer->status = $customer->balance < 0 ? 'مدين' : 'متوان';
             $customer->save();
 
-            // تحديث حالة المبيعات المفتوحة
-            $this->updateCustomerSalesStatus($customer);
+            // تحديث حالة المبيعات المفتوحة بالدفعة الجديدة
+            $this->updateCustomerSalesStatus($customer, $validated['amount']);
 
             return response()->json($payment->load('customer'), 201);
         });
@@ -64,20 +64,33 @@ class PaymentController extends Controller
             $customer->status = $customer->balance < 0 ? 'مدين' : 'متوان';
             $customer->save();
 
+            // إعادة حساب توزيع المدفوعات على المبيعات
+            $this->updateCustomerSalesStatus($customer);
+
             $payment->delete();
 
             return response()->json(['message' => 'Deleted successfully']);
         });
     }
 
-    private function updateCustomerSalesStatus(Customer $customer): void
+    private function updateCustomerSalesStatus(Customer $customer, ?float $amount = null): void
     {
+        // إذا لم يُمرر amount، نعيد الحساب من الصفر
+        if ($amount === null) {
+            $customer->sales()->update([
+                'status' => 'عليه دين',
+                'paid' => 0,
+                'remaining' => DB::raw('`total`'),
+            ]);
+            $amount = $customer->payments()->sum('amount');
+        }
+
         $sales = $customer->sales()
             ->where('status', 'عليه دين')
             ->orderBy('sale_date')
             ->get();
 
-        $available = $customer->balance > 0 ? $customer->balance : 0;
+        $available = $amount;
 
         foreach ($sales as $sale) {
             if ($available <= 0) {

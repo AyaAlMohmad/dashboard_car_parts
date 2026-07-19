@@ -23,7 +23,7 @@
             <a data-page="customers"><span class="nav-icon">👥</span> العملاء</a>
             <a data-page="suppliers"><span class="nav-icon">🏭</span> الموردين</a>
             <a data-page="inventory"><span class="nav-icon">📦</span> المستودع</a>
-            <a data-page="sales"><span class="nav-icon">💰</span> المبيعات</a>
+            <a data-page="sales"><span class="nav-icon">🧾</span> الفواتير</a>
             <a data-page="purchases"><span class="nav-icon">📥</span> المشتريات</a>
             <a data-page="payments"><span class="nav-icon">💳</span> تسديدات العملاء</a>
             <a data-page="supplier_payments"><span class="nav-icon">🏦</span> مدفوعات الموردين</a>

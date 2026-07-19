@@ -3,25 +3,51 @@
 namespace App\Console\Commands;
 
 use App\Exports\DatabaseBackupExport;
+use App\Exports\TableExport;
 use App\Models\Backup;
+use App\Models\Customer;
+use App\Models\Part;
+use App\Models\Sale;
+use App\Models\Payment;
+use App\Models\Supplier;
+use App\Models\Purchase;
+use App\Models\SupplierPayment;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
 
 class BackupDatabase extends Command
 {
-    protected $signature = 'backup:database {--format=excel : excel or sqlite}';
+    protected $signature = 'backup:database {--format=excel : excel or sqlite} {--type=full : full, customers, parts, sales, payments, suppliers, purchases, supplier_payments}';
     protected $description = 'Export database to backup file';
 
     public function handle(): int
     {
         $format = $this->option('format');
+        $type = $this->option('type');
         Storage::disk('local')->makeDirectory('backups');
 
+        $map = [
+            'customers' => [Customer::class, 'customers'],
+            'parts' => [Part::class, 'parts'],
+            'sales' => [Sale::class, 'sales'],
+            'payments' => [Payment::class, 'payments'],
+            'suppliers' => [Supplier::class, 'suppliers'],
+            'purchases' => [Purchase::class, 'purchases'],
+            'supplier_payments' => [SupplierPayment::class, 'supplier_payments'],
+        ];
+
         if ($format === 'excel') {
-            $filename = 'backup_' . now()->format('Y-m-d_His') . '.xlsx';
-            $path = 'backups/' . $filename;
-            (new DatabaseBackupExport)->store($path, 'local');
+            if ($type === 'full' || !isset($map[$type])) {
+                $filename = 'backup_' . now()->format('Y-m-d_His') . '.xlsx';
+                $path = 'backups/' . $filename;
+                (new DatabaseBackupExport)->store($path, 'local');
+            } else {
+                [$modelClass, $title] = $map[$type];
+                $filename = $type . '_' . now()->format('Y-m-d_His') . '.xlsx';
+                $path = 'backups/' . $filename;
+                (new TableExport($modelClass, $title))->store($path, 'local');
+            }
             $fullPath = Storage::disk('local')->path($path);
             $size = file_exists($fullPath) ? filesize($fullPath) : 0;
         } else {

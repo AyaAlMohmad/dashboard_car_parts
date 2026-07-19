@@ -18,15 +18,15 @@ function renderCustomers() {
     );
     const tbody = document.getElementById('customersTableBody');
     if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">👤 لا يوجد عملاء</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state">👤 لا يوجد عملاء</div></td></tr>';
         return;
     }
     tbody.innerHTML = filtered.map((c) => {
         const bal = c.balance || 0;
         let badge = bal < 0
-            ? '<span class="badge badge-danger">مدين ' + formatCurrency(Math.abs(bal)) + ' SP</span>'
+            ? '<span class="badge badge-danger">مدين ' + formatCurrency(Math.abs(bal)) + ' ل.س</span>'
             : bal > 0
-                ? '<span class="badge badge-success">دائن ' + formatCurrency(bal) + ' SP</span>'
+                ? '<span class="badge badge-success">دائن ' + formatCurrency(bal) + ' ل.س</span>'
                 : '<span class="badge badge-info">متوازن</span>';
         return `<tr>
             <td>${c.id}</td>
@@ -35,6 +35,8 @@ function renderCustomers() {
             <td>${c.address || '-'}</td>
             <td>${formatCurrency(bal)}</td>
             <td>${badge}</td>
+            <td>${formatDate(c.created_at)}</td>
+            <td>${formatTime(c.created_at)}</td>
             <td>
                 <button class="btn btn-outline btn-xs" onclick="editCustomer(${c.id})">✏️</button>
                 <button class="btn btn-danger btn-xs" onclick="deleteCustomer(${c.id})">🗑️</button>

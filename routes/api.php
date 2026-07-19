@@ -6,6 +6,7 @@ use App\Http\Controllers\PartController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\PurchaseController;
 use App\Http\Controllers\ReportsController;
+use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\SaleController;
 use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\SupplierPaymentController;
@@ -40,6 +41,14 @@ Route::get('/sales', [SaleController::class, 'index']);
 Route::post('/sales', [SaleController::class, 'store']);
 Route::get('/sales/{sale}', [SaleController::class, 'show']);
 Route::delete('/sales/{sale}', [SaleController::class, 'destroy']);
+
+// Invoices (multi-item)
+Route::get('/invoices', [InvoiceController::class, 'index']);
+Route::post('/invoices', [InvoiceController::class, 'store']);
+Route::get('/invoices/{invoice}', [InvoiceController::class, 'show']);
+Route::delete('/invoices/{invoice}', [InvoiceController::class, 'destroy']);
+Route::get('/invoices/settings/exchange-rate', [InvoiceController::class, 'settings']);
+Route::post('/invoices/settings/exchange-rate', [InvoiceController::class, 'updateSettings']);
 
 // Payments
 Route::get('/payments', [PaymentController::class, 'index']);
@@ -90,3 +99,9 @@ Route::post('/backup-schedules', [BackupController::class, 'storeSchedule']);
 Route::put('/backup-schedules/{schedule}', [BackupController::class, 'updateSchedule']);
 Route::delete('/backup-schedules/{schedule}', [BackupController::class, 'destroySchedule']);
 Route::get('/backup-schedules/next-run', [BackupController::class, 'nextRun']);
+Route::post('/backup-schedules/{schedule}/run', [BackupController::class, 'runSchedule']);
+
+// Email backup
+Route::get('/backups/email/settings', [BackupController::class, 'emailSettings']);
+Route::post('/backups/email/settings', [BackupController::class, 'saveEmailSettings']);
+Route::post('/backups/{backup}/send-email', [BackupController::class, 'sendBackup']);

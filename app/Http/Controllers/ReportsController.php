@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Customer;
+use App\Models\Invoice;
 use App\Models\Part;
 use App\Models\Payment;
 use App\Models\Purchase;
@@ -19,10 +20,10 @@ class ReportsController extends Controller
         $stats = [
             'low_stock_parts' => Part::whereIn('status', ['منخفض', 'غير متوفر'])->count(),
             'inventory_value' => (float) Part::selectRaw('SUM(quantity * purchase_price) as total')->value('total'),
-            'debtors' => Sale::where('status', 'عليه دين')->sum('paid'),
-            'total_debts' => Sale::where('status', 'عليه دين')->sum('remaining'),
+            'debtors' => Invoice::where('status', 'عليه دين')->sum('paid'),
+            'total_debts' => Invoice::where('status', 'عليه دين')->sum('remaining'),
             'payments_count' => Payment::count(),
-            'sales_count' => Sale::count(),
+            'sales_count' => Invoice::count(),
             'suppliers_count' => Supplier::count(),
             'purchases_count' => Purchase::count(),
             'total_purchases' => Purchase::sum('total'),
@@ -35,7 +36,7 @@ class ReportsController extends Controller
     public function debtors(): JsonResponse
     {
         $customers = Customer::where('status', 'مدين')
-            ->withSum('sales as total_debt', 'remaining')
+            ->withSum('invoices as total_debt', 'remaining')
             ->latest()
             ->get();
 
@@ -63,7 +64,7 @@ class ReportsController extends Controller
 
     public function salesReport(Request $request): JsonResponse
     {
-        $query = Sale::with(['customer', 'part']);
+        $query = Invoice::with(['customer', 'items.part']);
 
         if ($from = $request->input('from')) {
             $query->whereDate('sale_date', '>=', $from);
@@ -78,13 +79,14 @@ class ReportsController extends Controller
 
     public function monthlyProfit(): JsonResponse
     {
-        $sales = Sale::selectRaw(
-            'DATE_FORMAT(sale_date, "%Y-%m") as month,
-            COUNT(*) as invoices,
-            SUM(total) as total_sales,
-            SUM(sales.quantity * parts.purchase_price) as cost'
+        $sales = Invoice::selectRaw(
+            'DATE_FORMAT(invoices.sale_date, "%Y-%m") as month,
+            COUNT(DISTINCT invoices.id) as invoices,
+            SUM(invoices.total) as total_sales,
+            SUM(invoice_items.quantity * parts.purchase_price) as cost'
         )
-            ->join('parts', 'sales.part_id', '=', 'parts.id')
+            ->join('invoice_items', 'invoices.id', '=', 'invoice_items.invoice_id')
+            ->join('parts', 'invoice_items.part_id', '=', 'parts.id')
             ->groupBy('month')
             ->orderBy('month', 'desc')
             ->get()

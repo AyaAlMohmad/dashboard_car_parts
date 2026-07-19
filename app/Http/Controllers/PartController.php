@@ -36,6 +36,8 @@ class PartController extends Controller
             'quantity' => ['required', 'integer', 'min:0'],
             'purchase_price' => ['required', 'numeric', 'min:0'],
             'sale_price' => ['required', 'numeric', 'min:0'],
+            'purchase_price_usd' => ['nullable', 'numeric', 'min:0'],
+            'sale_price_usd' => ['nullable', 'numeric', 'min:0'],
             'supplier' => ['nullable', 'string', 'max:255'],
             'alert_threshold' => ['nullable', 'integer', 'min:0'],
         ]);
@@ -59,6 +61,8 @@ class PartController extends Controller
             'quantity' => ['sometimes', 'required', 'integer', 'min:0'],
             'purchase_price' => ['sometimes', 'required', 'numeric', 'min:0'],
             'sale_price' => ['sometimes', 'required', 'numeric', 'min:0'],
+            'purchase_price_usd' => ['nullable', 'numeric', 'min:0'],
+            'sale_price_usd' => ['nullable', 'numeric', 'min:0'],
             'supplier' => ['nullable', 'string', 'max:255'],
             'alert_threshold' => ['nullable', 'integer', 'min:0'],
         ]);

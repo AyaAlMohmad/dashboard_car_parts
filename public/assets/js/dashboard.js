@@ -23,8 +23,10 @@
             html = '<ul style="list-style:none;padding:0;">';
             recent.forEach((op) => {
                 const cname = op.customer?.name || '؟';
-                const pname = op.part?.name || '؟';
-                html += `<li style="padding:6px 0;border-bottom:1px solid var(--border);">🛒 بيع: ${pname} لـ ${cname} - ${formatCurrency(op.total)} | ${formatDate(op.sale_date)} ${renderBadge(op.status)}</li>`;
+                const items = op.items || [];
+                const itemNames = items.map(i => i.part?.name || '؟').join('، ');
+                const curr = op.currency === 'USD' ? '$' : 'ل.س';
+                html += `<li style="padding:6px 0;border-bottom:1px solid var(--border);">🧾 فاتورة ${op.invoice_number}: ${itemNames} لـ ${cname} — ${curr} ${op.total} | ${formatDate(op.sale_date)} ${renderBadge(op.status)}</li>`;
             });
             html += '</ul>';
         }
