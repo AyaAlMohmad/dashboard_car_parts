@@ -21,6 +21,7 @@ class Purchase extends Model
         'status',
         'currency',
         'purchase_date',
+        'notes',
     ];
 
     protected $casts = [

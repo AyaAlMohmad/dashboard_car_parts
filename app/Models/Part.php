@@ -20,7 +20,7 @@ class Part extends Model
         'sale_price',
         'purchase_price_usd',
         'sale_price_usd',
-        'supplier',
+        'notes',
         'alert_threshold',
         'status',
         'image',

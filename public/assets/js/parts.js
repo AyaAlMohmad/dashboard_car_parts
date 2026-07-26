@@ -69,7 +69,7 @@ function renderParts() {
             <td>${i.quantity}</td>
             <td>${formatCurrency(i.purchase_price, 'ل.س')}</td>
             <td>${i.purchase_price_usd ? formatCurrency(i.purchase_price_usd, '$') : '-'}</td>
-            <td>${i.supplier || '-'}</td>
+            <td>${i.notes || '-'}</td>
             <td>${renderBadge(i.status)}</td>
             <td>${formatDate(i.created_at)}</td>
             <td>${formatTime(i.created_at)}</td>
@@ -91,8 +91,7 @@ function cachePartModalState(item) {
         alert: document.getElementById('partAlert')?.value || '',
         purchasePrice: document.getElementById('partPurchasePrice')?.value || '',
         purchasePriceUsd: document.getElementById('partPurchasePriceUsd')?.value || '',
-        supplier: document.getElementById('partSupplier')?.value || '',
-        supplierInput: document.getElementById('partSupplierInput')?.value || '',
+        notes: document.getElementById('partNotes')?.value || '',
     };
 }
 
@@ -105,7 +104,7 @@ function restorePartModalState() {
     if (ov.alert !== undefined) document.getElementById('partAlert').value = ov.alert;
     if (ov.purchasePrice !== undefined) document.getElementById('partPurchasePrice').value = ov.purchasePrice;
     if (ov.purchasePriceUsd !== undefined) document.getElementById('partPurchasePriceUsd').value = ov.purchasePriceUsd;
-    if (ov.supplier !== undefined && window._partSupplierSelect) window._partSupplierSelect.setValue(ov.supplier, ov.supplierInput || '');
+    if (ov.notes !== undefined) document.getElementById('partNotes').value = ov.notes;
     _partModalOverrides = {};
 }
 
@@ -114,7 +113,6 @@ window.openPartModal = function (item = null) {
     _partImageBase64 = '';
     const isEdit = item !== null;
     const catOpts = '<option value="">-- اختر الفئة --</option>' + allCategories.map((c) => `<option value="${c.id}" ${isEdit && item.category_id === c.id ? 'selected' : ''}>${c.name}</option>`).join('');
-    const supplierOpts = allSuppliers.map((s) => ({ value: s.name, text: s.name }));
     const html = `
         <div class="modal-overlay" id="partModal">
             <div class="modal">
@@ -140,12 +138,9 @@ window.openPartModal = function (item = null) {
                         <div class="form-group"><label>سعر الشراء (ل.س)</label><input type="number" id="partPurchasePrice" value="${isEdit ? item.purchase_price || '' : ''}" step="0.01"></div>
                         <div class="form-group"><label>سعر الشراء ($)</label><input type="number" id="partPurchasePriceUsd" value="${isEdit ? item.purchase_price_usd || '' : ''}" step="0.01"></div>
                     </div>
-                    <div class="form-group" style="display:flex;align-items:flex-end;gap:6px;">
-                        <div style="flex:1;">
-                            <label>المورد</label>
-                            <input id="partSupplierInput" placeholder="اكتب اسم المورد..."><input type="hidden" id="partSupplier">
-                        </div>
-                        <button class="btn btn-success btn-xs" style="margin-bottom:0;height:38px;" onclick="addSupplierInline()" title="إضافة مورد">➕</button>
+                    <div class="form-group">
+                        <label>ملاحظات</label>
+                        <textarea id="partNotes" rows="2" placeholder="ملاحظات...">${isEdit ? item.notes || '' : ''}</textarea>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -155,12 +150,6 @@ window.openPartModal = function (item = null) {
             </div>
         </div>`;
     document.getElementById('modalContainer').innerHTML = html;
-    window._partSupplierSelect = initSearchableSelect(
-        'partSupplierInput',
-        supplierOpts,
-        (val, text) => { document.getElementById('partSupplier').value = val; }
-    );
-    if (isEdit && item.supplier && window._partSupplierSelect) window._partSupplierSelect.setValue(item.supplier, item.supplier);
     restorePartModalState();
 };
 
@@ -192,10 +181,10 @@ window.savePart = async function (id) {
     const alert_threshold = parseInt(document.getElementById('partAlert')?.value) || 5;
     const purchase_price = parseFloat(document.getElementById('partPurchasePrice')?.value) || null;
     const purchase_price_usd = parseFloat(document.getElementById('partPurchasePriceUsd')?.value) || null;
-    const supplier = document.getElementById('partSupplier')?.value || '';
+    const notes = document.getElementById('partNotes')?.value || '';
     const image = _partImageBase64 || (_partModalItem ? _partModalItem.image || '' : '');
 
-    const payload = { name, part_number, category_id, quantity, alert_threshold, supplier, image };
+    const payload = { name, part_number, category_id, quantity, alert_threshold, notes, image };
     if (purchase_price !== null) payload.purchase_price = purchase_price;
     if (purchase_price_usd !== null) payload.purchase_price_usd = purchase_price_usd;
     try {

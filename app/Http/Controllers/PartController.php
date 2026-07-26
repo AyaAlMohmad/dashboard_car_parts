@@ -4,8 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Category;
 use App\Models\Part;
-use App\Models\Purchase;
-use App\Models\Supplier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -39,7 +37,7 @@ class PartController extends Controller
             'quantity' => ['required', 'integer', 'min:0'],
             'purchase_price' => ['required_without:purchase_price_usd', 'numeric', 'gt:0'],
             'purchase_price_usd' => ['required_without:purchase_price', 'numeric', 'gt:0'],
-            'supplier' => ['nullable', 'string', 'max:255'],
+            'notes' => ['nullable', 'string', 'max:1000'],
             'alert_threshold' => ['nullable', 'integer', 'min:0'],
             'image' => ['nullable', 'string'],
         ]);
@@ -49,11 +47,6 @@ class PartController extends Controller
             $usd = $validated['purchase_price_usd'] ?? 0;
             $validated['sale_price'] = ($lira > 0) ? $lira : (($usd > 0) ? $usd : 1);
             $part = Part::create($validated);
-
-            if (($validated['quantity'] ?? 0) > 0) {
-                $unitPrice = ($lira > 0) ? $lira : (($usd > 0) ? $usd : 1);
-                $this->createPurchaseForPart($part, (int) $validated['quantity'], $unitPrice, $validated['supplier'] ?? null);
-            }
 
             return response()->json($part->load('category'), 201);
         });
@@ -73,14 +66,12 @@ class PartController extends Controller
             'quantity' => ['sometimes', 'required', 'integer', 'min:0'],
             'purchase_price' => ['sometimes', 'required_without:purchase_price_usd', 'numeric', 'gt:0'],
             'purchase_price_usd' => ['sometimes', 'required_without:purchase_price', 'numeric', 'gt:0'],
-            'supplier' => ['nullable', 'string', 'max:255'],
+            'notes' => ['nullable', 'string', 'max:1000'],
             'alert_threshold' => ['nullable', 'integer', 'min:0'],
             'image' => ['nullable', 'string'],
         ]);
 
         return DB::transaction(function () use ($validated, $part) {
-            $oldQuantity = $part->quantity;
-
             if (isset($validated['purchase_price']) || isset($validated['purchase_price_usd'])) {
                 $lira = $validated['purchase_price'] ?? $part->purchase_price;
                 $usd = $validated['purchase_price_usd'] ?? $part->purchase_price_usd;
@@ -88,38 +79,10 @@ class PartController extends Controller
             }
             $part->update($validated);
 
-            if (isset($validated['quantity']) && (int) $validated['quantity'] > $oldQuantity) {
-                $added = (int) $validated['quantity'] - $oldQuantity;
-                $lira = $validated['purchase_price'] ?? $part->purchase_price;
-                $usd = $validated['purchase_price_usd'] ?? $part->purchase_price_usd;
-                $unitPrice = ($lira > 0) ? $lira : (($usd > 0) ? $usd : 1);
-                $this->createPurchaseForPart($part, $added, $unitPrice, $validated['supplier'] ?? $part->supplier);
-            }
-
             return response()->json($part->load('category'));
         });
     }
 
-    private function createPurchaseForPart(Part $part, int $quantity, float $unitPrice, ?string $supplierName): void
-    {
-        if ($quantity <= 0) return;
-        $supplier = Supplier::firstOrCreate(
-            ['name' => $supplierName ?: 'غير معروف'],
-            ['phone' => '', 'address' => '']
-        );
-        $total = round($unitPrice * $quantity, 2);
-        Purchase::create([
-            'supplier_id' => $supplier->id,
-            'part_id' => $part->id,
-            'quantity' => $quantity,
-            'unit_price' => $unitPrice,
-            'total' => $total,
-            'paid' => 0,
-            'remaining' => $total,
-            'status' => 'علينا دين',
-            'purchase_date' => now()->toDateString(),
-        ]);
-    }
 
     public function destroy(Part $part): JsonResponse
     {
