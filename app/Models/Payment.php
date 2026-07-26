@@ -14,6 +14,7 @@ class Payment extends Model
         'customer_id',
         'sale_id',
         'amount',
+        'currency',
         'notes',
         'payment_date',
     ];

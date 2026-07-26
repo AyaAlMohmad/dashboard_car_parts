@@ -30,13 +30,15 @@ class PurchaseController extends Controller
             'supplier_id' => ['required', 'exists:suppliers,id'],
             'part_id' => ['required', 'exists:parts,id'],
             'quantity' => ['required', 'integer', 'min:1'],
+            'unit_price' => ['required', 'numeric', 'min:1'],
             'purchase_date' => ['required', 'date'],
             'paid' => ['nullable', 'numeric', 'min:0'],
+            'currency' => ['nullable', 'in:SYP,USD'],
         ]);
 
         return DB::transaction(function () use ($validated) {
             $part = Part::lockForUpdate()->findOrFail($validated['part_id']);
-            $total = $part->purchase_price * $validated['quantity'];
+            $total = $validated['unit_price'] * $validated['quantity'];
             $paid = $validated['paid'] ?? 0;
             $remaining = $total - $paid;
 
@@ -44,14 +46,18 @@ class PurchaseController extends Controller
                 'supplier_id' => $validated['supplier_id'],
                 'part_id' => $validated['part_id'],
                 'quantity' => $validated['quantity'],
+                'unit_price' => $validated['unit_price'],
                 'total' => $total,
                 'paid' => $paid,
                 'remaining' => $remaining,
                 'status' => $remaining > 0 ? 'علينا دين' : 'مسدد',
+                'currency' => $validated['currency'] ?? 'SYP',
                 'purchase_date' => $validated['purchase_date'],
             ]);
 
-            $part->increment('quantity', $validated['quantity']);
+            $part->quantity += $validated['quantity'];
+            $part->purchase_price = $validated['unit_price'];
+            $part->save();
 
             // تحديث رصيد المورد (علينا = نحنا مدينين = balance موجب)
             $supplier = Supplier::find($validated['supplier_id']);

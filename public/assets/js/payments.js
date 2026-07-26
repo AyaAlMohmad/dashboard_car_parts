@@ -35,7 +35,7 @@ function renderPayments() {
             <td>${formatDate(p.payment_date)}</td>
             <td>${formatTime(p.created_at)}</td>
             <td>${p.customer?.name || '؟'}</td>
-            <td>${formatCurrency(p.amount)}</td>
+            <td>${formatCurrency(p.amount, p.currency === 'USD' ? '$' : 'ل.س')}</td>
             <td>${p.notes || '-'}</td>
             <td>
                 <button class="btn btn-danger btn-xs" onclick="deletePayment(${p.id})">🗑️</button>
@@ -47,22 +47,25 @@ function renderPayments() {
 function cachePaymentModalState() {
     _paymentModalOverrides = {
         customer: document.getElementById('payCustomer')?.value || '',
+        customerInput: document.getElementById('payCustomerInput')?.value || '',
         amount: document.getElementById('payAmount')?.value || '',
+        currency: document.getElementById('payCurrency')?.value || '',
         date: document.getElementById('payDate')?.value || '',
         notes: document.getElementById('payNotes')?.value || '',
     };
 }
 function restorePaymentModalState() {
     const ov = _paymentModalOverrides;
-    if (ov.customer !== undefined && document.getElementById('payCustomer')) document.getElementById('payCustomer').value = ov.customer;
+    if (ov.customer !== undefined && window._payCustomerSelect) window._payCustomerSelect.setValue(ov.customer, ov.customerInput || '');
     if (ov.amount !== undefined && document.getElementById('payAmount')) document.getElementById('payAmount').value = ov.amount;
+    if (ov.currency !== undefined && document.getElementById('payCurrency')) document.getElementById('payCurrency').value = ov.currency;
     if (ov.date !== undefined && document.getElementById('payDate')) document.getElementById('payDate').value = ov.date;
     if (ov.notes !== undefined && document.getElementById('payNotes')) document.getElementById('payNotes').value = ov.notes;
     _paymentModalOverrides = {};
 }
 
 window.openPaymentModal = function () {
-    const customerOpts = allCustomers.map((c) => `<option value="${c.id}">${c.name}</option>`).join('');
+    const customerOpts = allCustomers.map((c) => ({ value: String(c.id), text: `${c.name} - ${c.phone || ''}` }));
     const today = new Date().toISOString().split('T')[0];
 
     const html = `
@@ -71,12 +74,20 @@ window.openPaymentModal = function () {
                 <div class="modal-header"><h3>💵 تسجيل دفعة</h3><button class="modal-close" onclick="closeModal('payModal')">✕</button></div>
                 <div class="modal-body">
                     <div class="form-group" style="display:flex;align-items:flex-end;gap:6px;">
-                        <div style="flex:1;"><label>العميل *</label><select id="payCustomer">${customerOpts}</select></div>
+                        <div style="flex:1;"><label>العميل *</label><input id="payCustomerInput" placeholder="اكتب اسم العميل..."><input type="hidden" id="payCustomer"></div>
                         <button class="btn btn-success btn-xs" style="margin-bottom:0;height:38px;" onclick="addCustomerInlinePayment()" title="إضافة عميل">➕</button>
                     </div>
                     <div class="form-row">
                         <div class="form-group"><label>المبلغ *</label><input type="number" id="payAmount" step="0.01" min="0.01"></div>
                         <div class="form-group"><label>التاريخ *</label><input type="date" id="payDate" value="${today}"></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>العملة</label>
+                            <select id="payCurrency">
+                                <option value="SYP">ليرة سورية (SYP)</option>
+                                <option value="USD">دولار (USD)</option>
+                            </select>
+                        </div>
                     </div>
                     <div class="form-group"><label>ملاحظات</label><textarea id="payNotes" rows="2"></textarea></div>
                 </div>
@@ -87,6 +98,7 @@ window.openPaymentModal = function () {
             </div>
         </div>`;
     document.getElementById('modalContainer').innerHTML = html;
+    window._payCustomerSelect = initSearchableSelect('payCustomerInput', customerOpts, (val, text) => { document.getElementById('payCustomer').value = val; });
     restorePaymentModalState();
 };
 
@@ -133,6 +145,7 @@ window.savePayment = async function () {
     const amount = parseFloat(document.getElementById('payAmount')?.value) || 0;
     const payment_date = document.getElementById('payDate')?.value;
     const notes = document.getElementById('payNotes')?.value.trim() || '';
+    const currency = document.getElementById('payCurrency')?.value || 'SYP';
 
     if (!customer_id || amount <= 0 || !payment_date) {
         showToast('جميع الحقول المطلوبة يجب ملؤها', 'error');
@@ -142,7 +155,7 @@ window.savePayment = async function () {
     try {
         await apiFetch('/payments', {
             method: 'POST',
-            body: JSON.stringify({ customer_id, amount, payment_date, notes })
+            body: JSON.stringify({ customer_id, amount, payment_date, notes, currency })
         });
         showToast('تم تسجيل الدفعة ✅');
         closeModal('payModal');

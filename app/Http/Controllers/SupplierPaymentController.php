@@ -27,10 +27,12 @@ class SupplierPaymentController extends Controller
             'supplier_id' => ['required', 'exists:suppliers,id'],
             'amount' => ['required', 'numeric', 'min:0.01'],
             'notes' => ['nullable', 'string', 'max:1000'],
+            'currency' => ['nullable', 'in:SYP,USD'],
             'payment_date' => ['required', 'date'],
         ]);
 
         return DB::transaction(function () use ($validated) {
+            $validated['currency'] = $validated['currency'] ?? 'SYP';
             $payment = SupplierPayment::create($validated);
 
             $supplier = Supplier::find($validated['supplier_id']);

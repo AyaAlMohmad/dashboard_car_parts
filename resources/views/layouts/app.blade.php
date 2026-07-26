@@ -29,6 +29,7 @@
             <a href="{{ url('/purchases') }}" class="{{ request()->is('purchases') ? 'active' : '' }}"><span class="nav-icon">📥</span> المشتريات</a>
             <a href="{{ url('/payments') }}" class="{{ request()->is('payments') ? 'active' : '' }}"><span class="nav-icon">💳</span> تسديدات العملاء</a>
             <a href="{{ url('/supplier-payments') }}" class="{{ request()->is('supplier-payments') ? 'active' : '' }}"><span class="nav-icon">🏦</span> مدفوعات الموردين</a>
+            <a href="{{ url('/withdrawals') }}" class="{{ request()->is('withdrawals') ? 'active' : '' }}"><span class="nav-icon">💸</span> السحوبات</a>
             <a href="{{ url('/reports') }}" class="{{ request()->is('reports') ? 'active' : '' }}"><span class="nav-icon">📋</span> التقارير</a>
             <a href="{{ url('/backups') }}" class="{{ request()->is('backups') ? 'active' : '' }}"><span class="nav-icon">💾</span> النسخ الاحتياطية</a>
         </nav>

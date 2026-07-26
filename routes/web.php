@@ -45,3 +45,7 @@ Route::get('/backups', function () {
 Route::get('/categories', function () {
     return view('categories');
 });
+
+Route::get('/withdrawals', function () {
+    return view('withdrawals');
+});

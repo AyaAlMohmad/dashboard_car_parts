@@ -23,18 +23,27 @@ function renderSuppliers() {
         return;
     }
     tbody.innerHTML = filtered.map((s) => {
-        const bal = s.balance || 0;
-        let badge = bal > 0
-            ? '<span class="badge badge-danger">علينا ' + formatCurrency(bal) + ' ل.س</span>'
-            : bal < 0
-                ? '<span class="badge badge-success">لنا ' + formatCurrency(Math.abs(bal)) + ' ل.س</span>'
-                : '<span class="badge badge-info">متوازن</span>';
+        const debtSyp = parseFloat(s.debt_syp || 0);
+        const debtUsd = parseFloat(s.debt_usd || 0);
+        const paidSyp = parseFloat(s.paid_syp || 0);
+        const paidUsd = parseFloat(s.paid_usd || 0);
+        const balSyp = parseFloat(s.balance_syp || 0);
+        const balUsd = parseFloat(s.balance_usd || 0);
+        let badge = '';
+        if (balSyp > 0) badge += `<span class="badge badge-danger">علينا ${formatCurrency(balSyp, 'ل.س')}</span> `;
+        if (balSyp < 0) badge += `<span class="badge badge-success">لنا ${formatCurrency(Math.abs(balSyp), 'ل.س')}</span> `;
+        if (balUsd > 0) badge += `<span class="badge badge-danger">علينا ${formatCurrency(balUsd, '$')}</span> `;
+        if (balUsd < 0) badge += `<span class="badge badge-success">لنا ${formatCurrency(Math.abs(balUsd), '$')}</span> `;
+        if (!badge) badge = '<span class="badge badge-info">متوازن</span>';
         return `<tr>
             <td>${s.id}</td>
             <td>${s.name}</td>
             <td>${s.phone || '-'}</td>
             <td>${s.address || '-'}</td>
-            <td>${formatCurrency(bal)}</td>
+            <td style="font-size:0.85em;line-height:1.5;">
+                <div style="color:var(--danger)">دين: ${formatCurrency(debtSyp, 'ل.س')} | ${formatCurrency(debtUsd, '$')}</div>
+                <div style="color:var(--success)">مسدد: ${formatCurrency(paidSyp, 'ل.س')} | ${formatCurrency(paidUsd, '$')}</div>
+            </td>
             <td>${badge}</td>
             <td>${formatDate(s.created_at)}</td>
             <td>${formatTime(s.created_at)}</td>

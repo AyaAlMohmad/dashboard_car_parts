@@ -31,10 +31,12 @@ class PaymentController extends Controller
             'customer_id' => ['required', 'exists:customers,id'],
             'amount' => ['required', 'numeric', 'min:0.01'],
             'notes' => ['nullable', 'string', 'max:1000'],
+            'currency' => ['nullable', 'in:SYP,USD'],
             'payment_date' => ['required', 'date'],
         ]);
 
         return DB::transaction(function () use ($validated) {
+            $validated['currency'] = $validated['currency'] ?? 'SYP';
             $payment = Payment::create($validated);
 
             // تحديث رصيد العميل

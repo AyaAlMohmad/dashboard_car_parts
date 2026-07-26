@@ -16,6 +16,7 @@ class Invoice extends Model
         'invoice_number',
         'total',
         'paid',
+        'credit_used',
         'remaining',
         'status',
         'currency',
@@ -27,6 +28,7 @@ class Invoice extends Model
     protected $casts = [
         'total' => 'decimal:2',
         'paid' => 'decimal:2',
+        'credit_used' => 'decimal:2',
         'remaining' => 'decimal:2',
         'exchange_rate' => 'decimal:2',
         'sale_date' => 'date',

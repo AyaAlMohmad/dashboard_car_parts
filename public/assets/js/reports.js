@@ -9,17 +9,20 @@
 
         const s = summary;
         document.getElementById('reportStats').innerHTML = `
-            <div class="stat-card"><div class="stat-icon orange">⚠️</div><div class="stat-info"><h3>قطع تحتاج إعادة طلب</h3><div class="value">${s.low_stock_parts || 0}</div></div></div>
-            <div class="stat-card"><div class="stat-icon blue">📦</div><div class="stat-info"><h3>قيمة المخزون</h3><div class="value">${formatCurrency(s.inventory_value || 0)}</div></div></div>
-            <div class="stat-card"><div class="stat-icon green">💰</div><div class="stat-info"><h3>الدائنون (المدفوع)</h3><div class="value">${formatCurrency(s.debtors || 0)}</div></div></div>
-            <div class="stat-card"><div class="stat-icon red">💸</div><div class="stat-info"><h3>إجمالي الديون المستحقة</h3><div class="value">${formatCurrency(s.total_debts || 0)}</div></div></div>
-            <div class="stat-card"><div class="stat-icon green">💳</div><div class="stat-info"><h3>عدد التسديدات</h3><div class="value">${s.payments_count || 0}</div></div></div>
-            <div class="stat-card"><div class="stat-icon blue">🛒</div><div class="stat-info"><h3>عدد المبيعات</h3><div class="value">${s.sales_count || 0}</div></div></div>
-            <div class="stat-card"><div class="stat-icon blue">🏭</div><div class="stat-info"><h3>عدد الموردين</h3><div class="value">${s.suppliers_count || 0}</div></div></div>
-            <div class="stat-card"><div class="stat-icon red">📥</div><div class="stat-info"><h3>ديون الموردين</h3><div class="value">${formatCurrency(s.supplier_debts || 0)}</div></div></div>
+            <div class="stat-card"><div class="stat-icon orange">⚠️</div><div class="stat-info"><h3>مخزون منخفض</h3><div class="value">${s.low_stock_parts || 0}</div></div></div>
+            <div class="stat-card"><div class="stat-icon blue">📦</div><div class="stat-info"><h3>قيمة المخزون (شراء)</h3><div class="value">${formatCurrency(s.inventory_value || 0)}</div></div></div>
+            <div class="stat-card"><div class="stat-icon red">💰</div><div class="stat-info"><h3>ديون للموردين</h3><div class="value">${formatCurrency(s.supplier_debts_syp || 0, 'ل.س')} | ${formatCurrency(s.supplier_debts_usd || 0, '$')}</div></div></div>
+            <div class="stat-card"><div class="stat-icon red">�</div><div class="stat-info"><h3>ديون العملاء</h3><div class="value">${formatCurrency(s.total_debts_syp || 0, 'ل.س')} | ${formatCurrency(s.total_debts_usd || 0, '$')}</div></div></div>
+            <div class="stat-card"><div class="stat-icon green">📈</div><div class="stat-info"><h3>ربح المستودع</h3><div class="value">${formatCurrency(s.warehouse_profit_syp || 0, 'ل.س')} | ${formatCurrency(s.warehouse_profit_usd || 0, '$')}</div></div></div>
         `;
 
         document.getElementById('inventoryCostValue').textContent = formatCurrency(s.inventory_value || 0);
+
+        document.getElementById('totalWithdrawals').innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:16px; font-size:18px; font-weight:bold;">
+                <span>💸 إجمالي السحوبات:</span>
+                <span style="font-size:24px;color:var(--danger);">${formatCurrency(s.total_withdrawals_syp || 0, 'ل.س')} | ${formatCurrency(s.total_withdrawals_usd || 0, '$')}</span>
+            </div>`;
 
         const debtorsBody = document.getElementById('debtorsTableBody');
         const debtList = debtors || [];

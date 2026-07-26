@@ -7,9 +7,8 @@
     <div class="page-header">
         <div>
             <h1>📊 لوحة التحكم</h1>
-            <span class="subtitle">نظرة عامة على المتجر</span>
+            <span class="subtitle">نظرة عامة</span>
         </div>
-        <button class="btn btn-success" onclick="downloadBackup()">📥 تصدير نسخة احتياطية (Excel)</button>
     </div>
     <div class="stats-grid" id="dashboardStats"></div>
     <div class="table-container" style="margin-top:16px;">

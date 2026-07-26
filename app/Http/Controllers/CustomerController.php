@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Customer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class CustomerController extends Controller
 {
@@ -17,8 +18,35 @@ class CustomerController extends Controller
                 ->orWhere('phone', 'like', "%{$search}%");
         }
 
+        $invoiceSums = DB::table('invoices')
+            ->select('customer_id',
+                DB::raw('SUM(CASE WHEN currency = "SYP" THEN remaining ELSE 0 END) as debt_syp'),
+                DB::raw('SUM(CASE WHEN currency = "USD" THEN remaining ELSE 0 END) as debt_usd'))
+            ->groupBy('customer_id');
+
+        $salesSums = DB::table('sales')
+            ->select('customer_id', DB::raw('SUM(remaining) as debt_syp_sales'))
+            ->groupBy('customer_id');
+
+        $paymentSums = DB::table('payments')
+            ->select('customer_id',
+                DB::raw('SUM(CASE WHEN currency = "SYP" THEN amount ELSE 0 END) as paid_syp'),
+                DB::raw('SUM(CASE WHEN currency = "USD" THEN amount ELSE 0 END) as paid_usd'))
+            ->groupBy('customer_id');
+
+        $query->leftJoinSub($invoiceSums, 'inv_sums', 'customers.id', '=', 'inv_sums.customer_id')
+            ->leftJoinSub($salesSums, 'sale_sums', 'customers.id', '=', 'sale_sums.customer_id')
+            ->leftJoinSub($paymentSums, 'pay_sums', 'customers.id', '=', 'pay_sums.customer_id')
+            ->select('customers.*',
+                DB::raw('COALESCE(inv_sums.debt_syp, 0) + COALESCE(sale_sums.debt_syp_sales, 0) as debt_syp'),
+                DB::raw('COALESCE(inv_sums.debt_usd, 0) as debt_usd'),
+                DB::raw('COALESCE(pay_sums.paid_syp, 0) as paid_syp'),
+                DB::raw('COALESCE(pay_sums.paid_usd, 0) as paid_usd'),
+                DB::raw('COALESCE(inv_sums.debt_syp, 0) + COALESCE(sale_sums.debt_syp_sales, 0) - COALESCE(pay_sums.paid_syp, 0) as balance_syp'),
+                DB::raw('COALESCE(inv_sums.debt_usd, 0) - COALESCE(pay_sums.paid_usd, 0) as balance_usd'));
+
         return response()->json(
-            $query->latest()->paginate(20)
+            $query->orderBy('customers.created_at', 'desc')->paginate(20)
         );
     }
 

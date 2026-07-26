@@ -3,6 +3,10 @@ let allSuppliers = [];
 let allParts = [];
 let _purchaseModalOverrides = {};
 
+function formatNumber(n) {
+    return Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 async function loadPurchases() {
     window.loadPurchases = loadPurchases;
     try {
@@ -30,7 +34,7 @@ function renderPurchases() {
     });
     const tbody = document.getElementById('purchasesTableBody');
     if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="11"><div class="empty-state">📥 لا توجد مشتريات</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12"><div class="empty-state">📥 لا توجد مشتريات</div></td></tr>';
         return;
     }
     tbody.innerHTML = filtered.map((p) => {
@@ -41,9 +45,10 @@ function renderPurchases() {
             <td>${p.supplier?.name || '؟'}</td>
             <td>${p.part?.name || '؟'}</td>
             <td>${p.quantity}</td>
-            <td>${formatCurrency(p.total)}</td>
-            <td>${formatCurrency(p.paid)}</td>
-            <td>${formatCurrency(p.remaining)}</td>
+            <td>${formatCurrency(p.unit_price, p.currency === 'USD' ? '$' : 'ل.س')}</td>
+            <td>${formatCurrency(p.total, p.currency === 'USD' ? '$' : 'ل.س')}</td>
+            <td>${formatCurrency(p.paid, p.currency === 'USD' ? '$' : 'ل.س')}</td>
+            <td>${formatCurrency(p.remaining, p.currency === 'USD' ? '$' : 'ل.س')}</td>
             <td>${renderBadge(p.status)}</td>
             <td>
                 <button class="btn btn-danger btn-xs" onclick="deletePurchase(${p.id})">🗑️</button>
@@ -55,26 +60,32 @@ function renderPurchases() {
 function cachePurchaseModalState() {
     _purchaseModalOverrides = {
         supplier: document.getElementById('purchaseSupplier')?.value || '',
+        supplierInput: document.getElementById('purchaseSupplierInput')?.value || '',
         partSearch: document.getElementById('purchasePartSearch')?.value || '',
         partId: document.getElementById('purchasePartId')?.value || '',
         qty: document.getElementById('purchaseQty')?.value || '',
         date: document.getElementById('purchaseDate')?.value || '',
+        purchasePrice: document.getElementById('purchasePrice')?.value || '',
         paid: document.getElementById('purchasePaid')?.value || '',
+        currency: document.getElementById('purchaseCurrency')?.value || '',
     };
 }
 function restorePurchaseModalState() {
     const ov = _purchaseModalOverrides;
-    if (ov.supplier !== undefined && document.getElementById('purchaseSupplier')) document.getElementById('purchaseSupplier').value = ov.supplier;
+    if (ov.supplier !== undefined && window._purchaseSupplierSelect) window._purchaseSupplierSelect.setValue(ov.supplier, ov.supplierInput || '');
     if (ov.partSearch !== undefined && document.getElementById('purchasePartSearch')) document.getElementById('purchasePartSearch').value = ov.partSearch;
     if (ov.partId !== undefined && document.getElementById('purchasePartId')) document.getElementById('purchasePartId').value = ov.partId;
     if (ov.qty !== undefined && document.getElementById('purchaseQty')) document.getElementById('purchaseQty').value = ov.qty;
     if (ov.date !== undefined && document.getElementById('purchaseDate')) document.getElementById('purchaseDate').value = ov.date;
+    if (ov.purchasePrice !== undefined && document.getElementById('purchasePrice')) document.getElementById('purchasePrice').value = ov.purchasePrice;
     if (ov.paid !== undefined && document.getElementById('purchasePaid')) document.getElementById('purchasePaid').value = ov.paid;
+    if (ov.currency !== undefined && document.getElementById('purchaseCurrency')) document.getElementById('purchaseCurrency').value = ov.currency;
     _purchaseModalOverrides = {};
 }
 
 window.openPurchaseModal = function () {
-    const supplierOpts = allSuppliers.map((s) => `<option value="${s.id}">${s.name}</option>`).join('');
+    const supplierOpts = allSuppliers.map((s) => ({ value: String(s.id), text: `${s.name} - ${s.phone || ''}` }));
+    const partOpts = allParts.map((p) => ({ value: String(p.id), text: `${p.name}${p.part_number ? ' - ' + p.part_number : ''}` }));
     const today = new Date().toISOString().split('T')[0];
 
     const html = `
@@ -84,22 +95,34 @@ window.openPurchaseModal = function () {
                 <div class="modal-body">
                     <div class="form-row">
                         <div class="form-group" style="display:flex;align-items:flex-end;gap:6px;">
-                            <div style="flex:1;"><label>المورد *</label><select id="purchaseSupplier">${supplierOpts}</select></div>
+                            <div style="flex:1;"><label>المورد *</label><input id="purchaseSupplierInput" placeholder="اكتب اسم المورد..."><input type="hidden" id="purchaseSupplier"></div>
                             <button class="btn btn-success btn-xs" style="margin-bottom:0;height:38px;" onclick="addSupplierInlinePurchase()" title="إضافة مورد">➕</button>
                         </div>
                     </div>
                     <div class="form-group" style="position:relative;">
                         <label>القطعة *</label>
-                        <input type="text" id="purchasePartSearch" placeholder="اكتب اسم أو رقم القطعة..." oninput="searchPurchaseParts()" autocomplete="off">
-                        <div id="purchasePartResults" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow-lg);z-index:100;max-height:200px;overflow-y:auto;"></div>
+                        <input type="text" id="purchasePartSearch" placeholder="اكتب اسم أو رقم القطعة...">
                         <input type="hidden" id="purchasePartId">
                         <button class="btn btn-success btn-xs" style="margin-top:6px;" onclick="addPartInlinePurchase()" title="إضافة قطعة جديدة">➕ قطعة جديدة</button>
                     </div>
                     <div class="form-row">
-                        <div class="form-group"><label>الكمية *</label><input type="number" id="purchaseQty" value="1" min="1"></div>
-                        <div class="form-group"><label>التاريخ *</label><input type="date" id="purchaseDate" value="${today}"></div>
+                        <div class="form-group"><label>الكمية *</label><input type="number" id="purchaseQty" value="1" min="1" oninput="updatePurchaseTotal()"></div>
+                        <div class="form-group"><label>سعر الشراء للوحدة *</label><input type="number" id="purchasePrice" value="0" step="0.01" oninput="updatePurchaseTotal()"></div>
                     </div>
-                    <div class="form-group"><label>المبلغ المدفوع</label><input type="number" id="purchasePaid" value="0" step="0.01"></div>
+                    <div class="form-row">
+                        <div class="form-group"><label>العملة</label>
+                            <select id="purchaseCurrency">
+                                <option value="SYP">ليرة سورية (SYP)</option>
+                                <option value="USD">دولار (USD)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>التاريخ *</label><input type="date" id="purchaseDate" value="${today}"></div>
+                        <div class="form-group"><label>الإجمالي</label><input id="purchaseTotal" readonly style="background:#f1f5f9;font-weight:700;"></div>
+                    </div>
+                    <div class="form-group"><label>المبلغ المدفوع</label><input type="number" id="purchasePaid" value="0" step="0.01" oninput="updatePurchaseRemaining()"></div>
+                    <div class="form-group"><label>المتبقي</label><input id="purchaseRemaining" readonly style="background:#fef3c7;font-weight:700;color:var(--danger);"></div>
                 </div>
                 <div class="modal-footer">
                     <button class="btn btn-outline" onclick="closeModal('purchaseModal')">إلغاء</button>
@@ -108,7 +131,25 @@ window.openPurchaseModal = function () {
             </div>
         </div>`;
     document.getElementById('modalContainer').innerHTML = html;
+    window._purchaseSupplierSelect = initSearchableSelect(
+        'purchaseSupplierInput',
+        supplierOpts,
+        (val, text) => { document.getElementById('purchaseSupplier').value = val; }
+    );
+    window._purchasePartSelect = initSearchableSelect(
+        'purchasePartSearch',
+        partOpts,
+        (val, text) => {
+            document.getElementById('purchasePartId').value = val;
+            const part = allParts.find(p => String(p.id) === val);
+            if (part) {
+                document.getElementById('purchasePrice').value = part.purchase_price || '';
+                updatePurchaseTotal();
+            }
+        }
+    );
     restorePurchaseModalState();
+    updatePurchaseTotal();
 };
 
 function searchPurchaseParts() {
@@ -127,18 +168,20 @@ function searchPurchaseParts() {
         results.innerHTML = '<div style="padding:10px;color:var(--text-light);">لا توجد نتائج</div>';
     } else {
         results.innerHTML = matches.map(p => {
-            return `<div style="padding:10px;cursor:pointer;border-bottom:1px solid var(--border);" onclick="selectPurchasePart(${p.id}, '${p.name.replace(/'/g, "\\'")}')">
+            return `<div style="padding:10px;cursor:pointer;border-bottom:1px solid var(--border);" onclick="selectPurchasePart(${p.id}, '${p.name.replace(/'/g, "\\'")}', ${p.purchase_price || 0})">
                 <strong>${p.name}</strong> <small style="color:var(--text-light);">(${p.part_number || 'بدون رقم'})</small>
-                <div style="font-size:12px;color:var(--text-light);">متاح: ${p.quantity}</div>
+                <div style="font-size:12px;color:var(--text-light);">متاح: ${p.quantity} — سعر الشراء: ${formatNumber(p.purchase_price || 0)}</div>
             </div>`;
         }).join('');
     }
     results.style.display = 'block';
 }
 
-function selectPurchasePart(id, name) {
+function selectPurchasePart(id, name, price) {
     document.getElementById('purchasePartSearch').value = name;
     document.getElementById('purchasePartId').value = id;
+    document.getElementById('purchasePrice').value = price || '';
+    updatePurchaseTotal();
     document.getElementById('purchasePartResults').style.display = 'none';
 }
 
@@ -191,23 +234,23 @@ window.addPartInlinePurchase = function () {
                 <div class="modal-body">
                     <div class="form-group"><label>الاسم *</label><input id="inlinePartName"></div>
                     <div class="form-row"><div class="form-group"><label>رقم القطعة</label><input id="inlinePartNumber"></div>
-                    <div class="form-group"><label>الفئة</label><select id="inlinePartCategory"></select></div></div>
+                    <div class="form-group"><label>الفئة</label><input id="inlinePartCategoryInput" placeholder="ابحث عن الفئة..."><input type="hidden" id="inlinePartCategory"></div></div>
                     <div class="form-row"><div class="form-group"><label>الكمية *</label><input type="number" id="inlinePartQty" value="0" min="0"></div>
                     <div class="form-group"><label>حد التنبيه</label><input type="number" id="inlinePartAlert" value="5" min="1"></div></div>
                     <div class="form-row"><div class="form-group"><label>سعر الشراء</label><input type="number" id="inlinePartPurchasePrice" value="0" step="0.01"></div>
                     <div class="form-group"><label>سعر البيع *</label><input type="number" id="inlinePartSalePrice" value="0" step="0.01"></div></div>
-                    <div class="form-group"><label>المورد</label><select id="inlinePartSupplier"></select></div>
+                    <div class="form-group"><label>المورد</label><input id="inlinePartSupplierInput" placeholder="ابحث عن المورد..."><input type="hidden" id="inlinePartSupplier"></div>
                 </div>
                 <div class="modal-footer"><button class="btn btn-outline" onclick="closeInlinePartPurchase()">إلغاء</button>
                 <button class="btn btn-primary" onclick="saveInlinePartPurchase()">💾 حفظ</button></div>
             </div>
         </div>`;
     document.getElementById('modalContainer').insertAdjacentHTML('beforeend', html);
-    const catSelect = document.getElementById('inlinePartCategory');
-    const supSelect = document.getElementById('inlinePartSupplier');
     Promise.all([apiFetch('/categories'), apiFetch('/suppliers')]).then(([cats, sups]) => {
-        if (catSelect) catSelect.innerHTML = '<option value="">-- اختر الفئة --</option>' + (cats || []).map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-        if (supSelect) supSelect.innerHTML = '<option value="">-- اختر المورد --</option>' + (sups.data || []).map(s => `<option value="${s.name}">${s.name}</option>`).join('');
+        const catOpts = (cats || []).map(c => ({ value: String(c.id), text: c.name }));
+        const supOpts = (sups.data || []).map(s => ({ value: s.name, text: s.name }));
+        window._inlinePartCategorySelect = initSearchableSelect('inlinePartCategoryInput', catOpts, (val, text) => { document.getElementById('inlinePartCategory').value = val; });
+        window._inlinePartSupplierSelect = initSearchableSelect('inlinePartSupplierInput', supOpts, (val, text) => { document.getElementById('inlinePartSupplier').value = val; });
     });
 };
 window.closeInlinePartPurchase = function () {
@@ -238,22 +281,39 @@ window.saveInlinePartPurchase = async function () {
     }
 };
 
+window.updatePurchaseTotal = function () {
+    const qty = parseInt(document.getElementById('purchaseQty')?.value) || 0;
+    const price = parseFloat(document.getElementById('purchasePrice')?.value) || 0;
+    const total = document.getElementById('purchaseTotal');
+    if (total) total.value = formatNumber(qty * price);
+    updatePurchaseRemaining();
+};
+
+window.updatePurchaseRemaining = function () {
+    const total = parseFloat(document.getElementById('purchaseTotal')?.value.replace(/,/g, '')) || 0;
+    const paid = parseFloat(document.getElementById('purchasePaid')?.value) || 0;
+    const rem = document.getElementById('purchaseRemaining');
+    if (rem) rem.value = formatNumber(Math.max(0, total - paid));
+};
+
 window.savePurchase = async function () {
     const supplier_id = document.getElementById('purchaseSupplier')?.value;
     const part_id = document.getElementById('purchasePartId')?.value;
     const quantity = parseInt(document.getElementById('purchaseQty')?.value) || 0;
+    const unit_price = parseFloat(document.getElementById('purchasePrice')?.value) || 0;
     const purchase_date = document.getElementById('purchaseDate')?.value;
     const paid = parseFloat(document.getElementById('purchasePaid')?.value) || 0;
+    const currency = document.getElementById('purchaseCurrency')?.value || 'SYP';
 
-    if (!supplier_id || !part_id || quantity < 1 || !purchase_date) {
-        showToast('جميع الحقول المطلوبة يجب ملؤها (المورد، القطعة، الكمية، التاريخ)', 'error');
+    if (!supplier_id || !part_id || quantity < 1 || unit_price <= 0 || !purchase_date) {
+        showToast('المورد، القطعة، الكمية، سعر الشراء، والتاريخ مطلوبة', 'error');
         return;
     }
 
     try {
         await apiFetch('/purchases', {
             method: 'POST',
-            body: JSON.stringify({ supplier_id, part_id, quantity, purchase_date, paid })
+            body: JSON.stringify({ supplier_id, part_id, quantity, unit_price, purchase_date, paid, currency })
         });
         showToast('تم تسجيل الشراء ✅');
         closeModal('purchaseModal');

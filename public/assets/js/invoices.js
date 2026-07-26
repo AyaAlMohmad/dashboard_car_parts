@@ -44,17 +44,18 @@ function renderInvoices() {
             : (items[0]?.part?.name || '؟');
         const currSymbol = inv.currency === 'USD' ? '$' : 'ل.س';
         return `<tr>
-            <td>${inv.invoice_number}</td>
+            <td style="cursor:pointer;color:var(--primary);font-weight:600;" onclick="viewInvoice(${inv.id})">${inv.invoice_number}</td>
             <td>${formatDate(inv.sale_date)}</td>
+            <td>${formatTime(inv.created_at)}</td>
             <td>${inv.customer?.name || '؟'}</td>
             <td>${itemSummary}</td>
             <td>${currSymbol} ${formatNumber(inv.total)}</td>
             <td>${currSymbol} ${formatNumber(inv.paid)}</td>
             <td>${currSymbol} ${formatNumber(inv.remaining)}</td>
             <td>${renderBadge(inv.status)}</td>
-            <td>${inv.notes ? '📝' : '-'}</td>
             <td>
-                <button class="btn btn-outline btn-xs" onclick="viewInvoice(${inv.id})">👁️</button>
+                <button class="btn btn-outline btn-xs" onclick="viewInvoice(${inv.id})">👁️ عرض</button>
+                <button class="btn btn-warning btn-xs" onclick="openReturnInvoiceModal(${inv.id})">مرتجع ↩️</button>
                 <button class="btn btn-danger btn-xs" onclick="deleteInvoice(${inv.id})">🗑️</button>
             </td>
         </tr>`;
@@ -68,7 +69,7 @@ function formatNumber(n) {
 window.openInvoiceModal = function () {
     invoiceItems = [];
     selectedCurrency = 'SYP';
-    const customerOpts = allCustomers.map((c) => `<option value="${c.id}">${c.name}</option>`).join('');
+    const customerOpts = allCustomers.map((c) => ({ value: String(c.id), text: `${c.name} - ${c.phone || ''}` }));
     const today = new Date().toISOString().split('T')[0];
 
     const html = `
@@ -77,17 +78,16 @@ window.openInvoiceModal = function () {
                 <div class="modal-header"><h3>🧾 فاتورة جديدة</h3><button class="modal-close" onclick="closeModal('invoiceModal')">✕</button></div>
                 <div class="modal-body">
                     <div class="form-row">
-                        <div class="form-group"><label>العميل *</label><select id="invCustomer">${customerOpts}</select></div>
+                        <div class="form-group"><label>العميل *</label><input id="invCustomerInput" placeholder="اكتب اسم العميل..."><input type="hidden" id="invCustomer"></div>
                         <div class="form-group"><label>التاريخ *</label><input type="date" id="invDate" value="${today}"></div>
                     </div>
                     <div class="form-row">
                         <div class="form-group"><label>العملة</label>
-                            <select id="invCurrency" onchange="changeCurrency()">
+                            <select id="invCurrency" onchange="selectedCurrency = this.value">
                                 <option value="SYP">ليرة سورية (SYP)</option>
                                 <option value="USD">دولار (USD)</option>
                             </select>
                         </div>
-                        <div class="form-group" id="rateGroup" style="display:none;"><label>سعر الصرف</label><input type="number" id="invRate" value="${exchangeRate}" step="0.01"></div>
                     </div>
                     <div class="form-group"><label>ملاحظات</label><textarea id="invNotes" rows="2"></textarea></div>
 
@@ -116,7 +116,8 @@ window.openInvoiceModal = function () {
                         </div>
                     </div>
 
-                    <div class="form-group" style="margin-top:12px;"><label>المبلغ المدفوع</label><input type="number" id="invPaid" value="0" step="0.01"></div>
+                    <div class="form-group" style="margin-top:12px;"><label>المبلغ المدفوع</label><input type="number" id="invPaid" value="0" step="0.01" oninput="updateInvoiceRemaining()"></div>
+                    <div class="form-group"><label>المتبقي</label><input id="invRemaining" readonly style="background:#fef3c7;font-weight:700;color:var(--danger);"></div>
                 </div>
                 <div class="modal-footer">
                     <button class="btn btn-outline" onclick="closeModal('invoiceModal')">إلغاء</button>
@@ -125,12 +126,13 @@ window.openInvoiceModal = function () {
             </div>
         </div>`;
     document.getElementById('modalContainer').innerHTML = html;
+    window._invCustomerSelect = initSearchableSelect(
+        'invCustomerInput',
+        customerOpts,
+        (val, text) => { document.getElementById('invCustomer').value = val; }
+    );
 };
 
-function changeCurrency() {
-    selectedCurrency = document.getElementById('invCurrency').value;
-    document.getElementById('rateGroup').style.display = selectedCurrency === 'USD' ? 'block' : 'none';
-}
 
 function searchParts() {
     const q = document.getElementById('partSearchInput')?.value.toLowerCase() || '';
@@ -207,6 +209,14 @@ function renderInvoiceItems() {
     }
     const total = invoiceItems.reduce((sum, it) => sum + it.total, 0);
     document.getElementById('invoiceTotal').textContent = formatNumber(total);
+    updateInvoiceRemaining();
+}
+
+function updateInvoiceRemaining() {
+    const total = invoiceItems.reduce((sum, it) => sum + it.total, 0);
+    const paid = parseFloat(document.getElementById('invPaid')?.value) || 0;
+    const rem = document.getElementById('invRemaining');
+    if (rem) rem.value = formatNumber(Math.max(0, total - paid));
 }
 
 function removeItem(idx) {
@@ -219,7 +229,6 @@ window.saveInvoice = async function () {
     const sale_date = document.getElementById('invDate')?.value;
     const paid = parseFloat(document.getElementById('invPaid')?.value) || 0;
     const currency = document.getElementById('invCurrency')?.value || 'SYP';
-    const exchange_rate = currency === 'USD' ? (parseFloat(document.getElementById('invRate')?.value) || exchangeRate) : 1;
     const notes = document.getElementById('invNotes')?.value || '';
 
     if (!customer_id || !sale_date || invoiceItems.length === 0) {
@@ -235,7 +244,6 @@ window.saveInvoice = async function () {
                 sale_date,
                 paid,
                 currency,
-                exchange_rate,
                 notes,
                 items: invoiceItems.map(it => ({ part_id: it.part_id, quantity: it.quantity, unit_price: it.unit_price }))
             })
@@ -244,7 +252,7 @@ window.saveInvoice = async function () {
         closeModal('invoiceModal');
         loadInvoices();
     } catch (e) {
-        showToast('حدث خطأ أثناء الحفظ', 'error');
+        showToast(e.message || 'حدث خطأ أثناء الحفظ', 'error');
         console.error(e);
     }
 };
@@ -275,6 +283,72 @@ window.viewInvoice = function (id) {
             <div>المتبقي: ${currSymbol} ${formatNumber(inv.remaining)}</div>
         </div>
     `);
+};
+
+window.openReturnInvoiceModal = async function (id) {
+    try {
+        const inv = await apiFetch('/invoices/' + id);
+        const itemsHtml = (inv.items || []).map(it => {
+            const returned = it.returned_quantity || 0;
+            const max = it.quantity - returned;
+            return max > 0 ? `<tr>
+                <td>${it.part?.name || '؟'}</td>
+                <td>${it.quantity}</td>
+                <td>${returned}</td>
+                <td><input type="number" id="retQty_${it.id}" min="0" max="${max}" value="0" style="width:70px;padding:6px;border-radius:6px;border:1.5px solid var(--border);"></td>
+            </tr>` : '';
+        }).join('');
+        if (!itemsHtml) {
+            showToast('لا يوجد قطع متاحة للترجيع', 'error');
+            return;
+        }
+        const html = `
+        <div class="modal-overlay" id="retModal">
+            <div class="modal"><div class="modal-header"><h3>↩️ ترجيع فاتورة ${inv.invoice_number}</h3><button class="modal-close" onclick="closeModal('retModal')">✕</button></div>
+            <div class="modal-body">
+                <table style="width:100%;font-size:13px;"><thead><tr><th>القطعة</th><th>الكمية</th><th>تم ترجيعها</th><th>ترجيع جديد</th></tr></thead><tbody>${itemsHtml}</tbody></table>
+                <div class="form-group" style="margin-top:12px;"><label>سبب الترجيع</label><input id="retReason" placeholder="اكتب سبب الترجيع (اختياري)"></div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal('retModal')">إلغاء</button>
+            <button class="btn btn-danger" onclick="saveReturnInvoice(${inv.id})">تأكيد الترجيع</button></div></div></div>`;
+        document.getElementById('modalContainer').innerHTML = html;
+    } catch (e) {
+        showToast(e.message || 'حدث خطأ أثناء التحميل', 'error');
+        console.error(e);
+    }
+};
+
+window.saveReturnInvoice = async function (id) {
+    try {
+        const inv = allInvoices.find(i => i.id === id);
+        if (!inv) return;
+        const retItems = [];
+        for (const it of inv.items || []) {
+            const max = it.quantity - (it.returned_quantity || 0);
+            const qty = parseInt(document.getElementById('retQty_' + it.id)?.value) || 0;
+            if (qty > 0) {
+                if (qty > max) {
+                    showToast('كمية الترجيع تتجاوز المتاح لـ ' + (it.part?.name || '؟'), 'error');
+                    return;
+                }
+                retItems.push({ invoice_item_id: it.id, quantity: qty });
+            }
+        }
+        if (retItems.length === 0) {
+            showToast('أدخل كمية ترجيع واحدة على الأقل', 'error');
+            return;
+        }
+        await apiFetch('/invoices/' + id + '/return', {
+            method: 'POST',
+            body: JSON.stringify({ items: retItems, reason: document.getElementById('retReason')?.value || '' })
+        });
+        showToast('تم الترجيع ✅');
+        closeModal('retModal');
+        loadInvoices();
+    } catch (e) {
+        showToast(e.message || 'حدث خطأ أثناء الترجيع', 'error');
+        console.error(e);
+    }
 };
 
 window.deleteInvoice = async function (id) {

@@ -3,6 +3,7 @@ let allCategories = [];
 let allSuppliers = [];
 let _partModalItem = null;
 let _partModalOverrides = {};
+let _partImageBase64 = '';
 
 async function loadParts() {
     window.loadParts = loadParts;
@@ -54,25 +55,20 @@ function renderParts() {
     });
     const tbody = document.getElementById('partsTableBody');
     if (filtered.length === 0) {
-<<<<<<< HEAD
-        tbody.innerHTML = '<tr><td colspan="14"><div class="empty-state">📦 لا توجد قطع</div></td></tr>';
-=======
-        tbody.innerHTML = '<tr><td colspan="12"><div class="empty-state">📦 لا توجد قطع</div></td></tr>';
->>>>>>> 092fd02fa1e4004e138d6f4f84e824e290f61d74
+        tbody.innerHTML = '<tr><td colspan="13"><div class="empty-state">📦 لا توجد قطع</div></td></tr>';
         return;
     }
     tbody.innerHTML = filtered.map((i) => {
         const low = i.quantity <= (i.alert_threshold || 5);
         return `<tr style="${low ? 'background:#ffcccc;color:#900;font-weight:bold;' : ''}">
             <td>${i.id}</td>
+            <td>${i.image ? `<img src="${i.image}" style="width:40px;height:40px;object-fit:cover;border-radius:6px;">` : '-'}</td>
             <td><strong>${i.name}</strong></td>
             <td>${i.part_number || '-'}</td>
             <td><span class="badge badge-info">${i.category?.name || 'أخرى'}</span></td>
             <td>${i.quantity}</td>
             <td>${formatCurrency(i.purchase_price, 'ل.س')}</td>
-            <td>${formatCurrency(i.sale_price, 'ل.س')}</td>
             <td>${i.purchase_price_usd ? formatCurrency(i.purchase_price_usd, '$') : '-'}</td>
-            <td>${i.sale_price_usd ? formatCurrency(i.sale_price_usd, '$') : '-'}</td>
             <td>${i.supplier || '-'}</td>
             <td>${renderBadge(i.status)}</td>
             <td>${formatDate(i.created_at)}</td>
@@ -94,10 +90,9 @@ function cachePartModalState(item) {
         qty: document.getElementById('partQty')?.value || '',
         alert: document.getElementById('partAlert')?.value || '',
         purchasePrice: document.getElementById('partPurchasePrice')?.value || '',
-        salePrice: document.getElementById('partSalePrice')?.value || '',
         purchasePriceUsd: document.getElementById('partPurchasePriceUsd')?.value || '',
-        salePriceUsd: document.getElementById('partSalePriceUsd')?.value || '',
         supplier: document.getElementById('partSupplier')?.value || '',
+        supplierInput: document.getElementById('partSupplierInput')?.value || '',
     };
 }
 
@@ -109,23 +104,23 @@ function restorePartModalState() {
     if (ov.qty !== undefined) document.getElementById('partQty').value = ov.qty;
     if (ov.alert !== undefined) document.getElementById('partAlert').value = ov.alert;
     if (ov.purchasePrice !== undefined) document.getElementById('partPurchasePrice').value = ov.purchasePrice;
-    if (ov.salePrice !== undefined) document.getElementById('partSalePrice').value = ov.salePrice;
     if (ov.purchasePriceUsd !== undefined) document.getElementById('partPurchasePriceUsd').value = ov.purchasePriceUsd;
-    if (ov.salePriceUsd !== undefined) document.getElementById('partSalePriceUsd').value = ov.salePriceUsd;
-    if (ov.supplier !== undefined) document.getElementById('partSupplier').value = ov.supplier;
+    if (ov.supplier !== undefined && window._partSupplierSelect) window._partSupplierSelect.setValue(ov.supplier, ov.supplierInput || '');
     _partModalOverrides = {};
 }
 
 window.openPartModal = function (item = null) {
     _partModalItem = item;
+    _partImageBase64 = '';
     const isEdit = item !== null;
     const catOpts = '<option value="">-- اختر الفئة --</option>' + allCategories.map((c) => `<option value="${c.id}" ${isEdit && item.category_id === c.id ? 'selected' : ''}>${c.name}</option>`).join('');
-    const supOpts = '<option value="">-- اختر المورد --</option>' + allSuppliers.map((s) => `<option value="${s.name}" ${isEdit && item.supplier === s.name ? 'selected' : ''}>${s.name}</option>`).join('');
+    const supplierOpts = allSuppliers.map((s) => ({ value: s.name, text: s.name }));
     const html = `
         <div class="modal-overlay" id="partModal">
             <div class="modal">
                 <div class="modal-header"><h3>${isEdit ? '✏️ تعديل' : '➕ إضافة'} قطعة</h3><button class="modal-close" onclick="closeModal('partModal')">✕</button></div>
                 <div class="modal-body">
+                    <div class="form-group"><label>صورة</label><input type="file" id="partImage" accept="image/*" onchange="previewPartImage()"><img id="partImagePreview" src="${isEdit && item.image ? item.image : ''}" style="max-width:80px;max-height:80px;margin-top:8px;display:${isEdit && item.image ? 'block' : 'none'};"></div>
                     <div class="form-group"><label>الاسم *</label><input id="partName" value="${isEdit ? item.name : ''}"></div>
                     <div class="form-row">
                         <div class="form-group"><label>رقم القطعة</label><input id="partNumber" value="${isEdit ? item.part_number || '' : ''}"></div>
@@ -142,17 +137,13 @@ window.openPartModal = function (item = null) {
                         <div class="form-group"><label>حد التنبيه</label><input type="number" id="partAlert" value="${isEdit ? item.alert_threshold || 5 : 5}" min="1"></div>
                     </div>
                     <div class="form-row">
-                        <div class="form-group"><label>سعر الشراء (ل.س)</label><input type="number" id="partPurchasePrice" value="${isEdit ? item.purchase_price || 0 : 0}" step="0.01"></div>
-                        <div class="form-group"><label>سعر البيع (ل.س) *</label><input type="number" id="partSalePrice" value="${isEdit ? item.sale_price || 0 : 0}" step="0.01"></div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group"><label>سعر الشراء ($)</label><input type="number" id="partPurchasePriceUsd" value="${isEdit ? item.purchase_price_usd || 0 : 0}" step="0.01"></div>
-                        <div class="form-group"><label>سعر البيع ($)</label><input type="number" id="partSalePriceUsd" value="${isEdit ? item.sale_price_usd || 0 : 0}" step="0.01"></div>
+                        <div class="form-group"><label>سعر الشراء (ل.س)</label><input type="number" id="partPurchasePrice" value="${isEdit ? item.purchase_price || '' : ''}" step="0.01"></div>
+                        <div class="form-group"><label>سعر الشراء ($)</label><input type="number" id="partPurchasePriceUsd" value="${isEdit ? item.purchase_price_usd || '' : ''}" step="0.01"></div>
                     </div>
                     <div class="form-group" style="display:flex;align-items:flex-end;gap:6px;">
                         <div style="flex:1;">
                             <label>المورد</label>
-                            <select id="partSupplier">${supOpts}</select>
+                            <input id="partSupplierInput" placeholder="اكتب اسم المورد..."><input type="hidden" id="partSupplier">
                         </div>
                         <button class="btn btn-success btn-xs" style="margin-bottom:0;height:38px;" onclick="addSupplierInline()" title="إضافة مورد">➕</button>
                     </div>
@@ -164,7 +155,27 @@ window.openPartModal = function (item = null) {
             </div>
         </div>`;
     document.getElementById('modalContainer').innerHTML = html;
+    window._partSupplierSelect = initSearchableSelect(
+        'partSupplierInput',
+        supplierOpts,
+        (val, text) => { document.getElementById('partSupplier').value = val; }
+    );
+    if (isEdit && item.supplier && window._partSupplierSelect) window._partSupplierSelect.setValue(item.supplier, item.supplier);
     restorePartModalState();
+};
+
+window.previewPartImage = function () {
+    const fileInput = document.getElementById('partImage');
+    const preview = document.getElementById('partImagePreview');
+    const file = fileInput?.files?.[0];
+    if (!file || !preview) return;
+    const reader = new FileReader();
+    reader.onload = function (e) {
+        _partImageBase64 = e.target.result;
+        preview.src = _partImageBase64;
+        preview.style.display = 'block';
+    };
+    reader.readAsDataURL(file);
 };
 
 window.editPart = function (id) {
@@ -179,14 +190,14 @@ window.savePart = async function (id) {
     const category_id = document.getElementById('partCategory')?.value;
     const quantity = parseInt(document.getElementById('partQty')?.value) || 0;
     const alert_threshold = parseInt(document.getElementById('partAlert')?.value) || 5;
-    const purchase_price = parseFloat(document.getElementById('partPurchasePrice')?.value) || 0;
-    const sale_price = parseFloat(document.getElementById('partSalePrice')?.value) || 0;
-    if (sale_price <= 0) { showToast('سعر البيع مطلوب', 'error'); return; }
-    const purchase_price_usd = parseFloat(document.getElementById('partPurchasePriceUsd')?.value) || 0;
-    const sale_price_usd = parseFloat(document.getElementById('partSalePriceUsd')?.value) || 0;
+    const purchase_price = parseFloat(document.getElementById('partPurchasePrice')?.value) || null;
+    const purchase_price_usd = parseFloat(document.getElementById('partPurchasePriceUsd')?.value) || null;
     const supplier = document.getElementById('partSupplier')?.value || '';
+    const image = _partImageBase64 || (_partModalItem ? _partModalItem.image || '' : '');
 
-    const payload = { name, part_number, category_id, quantity, alert_threshold, purchase_price, sale_price, purchase_price_usd, sale_price_usd, supplier };
+    const payload = { name, part_number, category_id, quantity, alert_threshold, supplier, image };
+    if (purchase_price !== null) payload.purchase_price = purchase_price;
+    if (purchase_price_usd !== null) payload.purchase_price_usd = purchase_price_usd;
     try {
         if (id) {
             await apiFetch('/parts/' + id, { method: 'PUT', body: JSON.stringify(payload) });

@@ -10,6 +10,7 @@ use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\SaleController;
 use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\SupplierPaymentController;
+use App\Http\Controllers\WithdrawalController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\BackupController;
 
@@ -46,6 +47,7 @@ Route::delete('/sales/{sale}', [SaleController::class, 'destroy']);
 Route::get('/invoices', [InvoiceController::class, 'index']);
 Route::post('/invoices', [InvoiceController::class, 'store']);
 Route::get('/invoices/{invoice}', [InvoiceController::class, 'show']);
+Route::post('/invoices/{invoice}/return', [InvoiceController::class, 'returnItems']);
 Route::delete('/invoices/{invoice}', [InvoiceController::class, 'destroy']);
 Route::get('/invoices/settings/exchange-rate', [InvoiceController::class, 'settings']);
 Route::post('/invoices/settings/exchange-rate', [InvoiceController::class, 'updateSettings']);
@@ -74,6 +76,12 @@ Route::get('/supplier-payments', [SupplierPaymentController::class, 'index']);
 Route::post('/supplier-payments', [SupplierPaymentController::class, 'store']);
 Route::get('/supplier-payments/{supplierPayment}', [SupplierPaymentController::class, 'show']);
 Route::delete('/supplier-payments/{supplierPayment}', [SupplierPaymentController::class, 'destroy']);
+
+// Withdrawals
+Route::get('/withdrawals', [WithdrawalController::class, 'index']);
+Route::post('/withdrawals', [WithdrawalController::class, 'store']);
+Route::get('/withdrawals/{withdrawal}', [WithdrawalController::class, 'show']);
+Route::delete('/withdrawals/{withdrawal}', [WithdrawalController::class, 'destroy']);
 
 // Reports
 Route::get('/reports/summary', [ReportsController::class, 'summary']);

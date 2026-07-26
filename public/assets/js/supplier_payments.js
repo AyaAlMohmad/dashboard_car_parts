@@ -35,7 +35,7 @@ function renderSupplierPayments() {
             <td>${formatDate(p.payment_date)}</td>
             <td>${formatTime(p.created_at)}</td>
             <td>${p.supplier?.name || '؟'}</td>
-            <td>${formatCurrency(p.amount)}</td>
+            <td>${formatCurrency(p.amount, p.currency === 'USD' ? '$' : 'ل.س')}</td>
             <td>${p.notes || '-'}</td>
             <td>
                 <button class="btn btn-danger btn-xs" onclick="deleteSupplierPayment(${p.id})">🗑️</button>
@@ -47,22 +47,25 @@ function renderSupplierPayments() {
 function cacheSupPayModalState() {
     _supPayModalOverrides = {
         supplier: document.getElementById('supPaySupplier')?.value || '',
+        supplierInput: document.getElementById('supPaySupplierInput')?.value || '',
         amount: document.getElementById('supPayAmount')?.value || '',
+        currency: document.getElementById('supPayCurrency')?.value || '',
         date: document.getElementById('supPayDate')?.value || '',
         notes: document.getElementById('supPayNotes')?.value || '',
     };
 }
 function restoreSupPayModalState() {
     const ov = _supPayModalOverrides;
-    if (ov.supplier !== undefined && document.getElementById('supPaySupplier')) document.getElementById('supPaySupplier').value = ov.supplier;
+    if (ov.supplier !== undefined && window._supPaySupplierSelect) window._supPaySupplierSelect.setValue(ov.supplier, ov.supplierInput || '');
     if (ov.amount !== undefined && document.getElementById('supPayAmount')) document.getElementById('supPayAmount').value = ov.amount;
+    if (ov.currency !== undefined && document.getElementById('supPayCurrency')) document.getElementById('supPayCurrency').value = ov.currency;
     if (ov.date !== undefined && document.getElementById('supPayDate')) document.getElementById('supPayDate').value = ov.date;
     if (ov.notes !== undefined && document.getElementById('supPayNotes')) document.getElementById('supPayNotes').value = ov.notes;
     _supPayModalOverrides = {};
 }
 
 window.openSupplierPaymentModal = function () {
-    const supplierOpts = allSuppliers.map((s) => `<option value="${s.id}">${s.name}</option>`).join('');
+    const supplierOpts = allSuppliers.map((s) => ({ value: String(s.id), text: `${s.name} - ${s.phone || ''}` }));
     const today = new Date().toISOString().split('T')[0];
 
     const html = `
@@ -71,12 +74,20 @@ window.openSupplierPaymentModal = function () {
                 <div class="modal-header"><h3>💵 دفع للمورد</h3><button class="modal-close" onclick="closeModal('supPayModal')">✕</button></div>
                 <div class="modal-body">
                     <div class="form-group" style="display:flex;align-items:flex-end;gap:6px;">
-                        <div style="flex:1;"><label>المورد *</label><select id="supPaySupplier">${supplierOpts}</select></div>
+                        <div style="flex:1;"><label>المورد *</label><input id="supPaySupplierInput" placeholder="اكتب اسم المورد..."><input type="hidden" id="supPaySupplier"></div>
                         <button class="btn btn-success btn-xs" style="margin-bottom:0;height:38px;" onclick="addSupplierInlineSupPay()" title="إضافة مورد">➕</button>
                     </div>
                     <div class="form-row">
                         <div class="form-group"><label>المبلغ *</label><input type="number" id="supPayAmount" step="0.01" min="0.01"></div>
                         <div class="form-group"><label>التاريخ *</label><input type="date" id="supPayDate" value="${today}"></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>العملة</label>
+                            <select id="supPayCurrency">
+                                <option value="SYP">ليرة سورية (SYP)</option>
+                                <option value="USD">دولار (USD)</option>
+                            </select>
+                        </div>
                     </div>
                     <div class="form-group"><label>ملاحظات</label><textarea id="supPayNotes" rows="2"></textarea></div>
                 </div>
@@ -87,6 +98,7 @@ window.openSupplierPaymentModal = function () {
             </div>
         </div>`;
     document.getElementById('modalContainer').innerHTML = html;
+    window._supPaySupplierSelect = initSearchableSelect('supPaySupplierInput', supplierOpts, (val, text) => { document.getElementById('supPaySupplier').value = val; });
     restoreSupPayModalState();
 };
 
@@ -133,6 +145,7 @@ window.saveSupplierPayment = async function () {
     const amount = parseFloat(document.getElementById('supPayAmount')?.value) || 0;
     const payment_date = document.getElementById('supPayDate')?.value;
     const notes = document.getElementById('supPayNotes')?.value.trim() || '';
+    const currency = document.getElementById('supPayCurrency')?.value || 'SYP';
 
     if (!supplier_id || amount <= 0 || !payment_date) {
         showToast('جميع الحقول المطلوبة يجب ملؤها', 'error');
@@ -142,7 +155,7 @@ window.saveSupplierPayment = async function () {
     try {
         await apiFetch('/supplier-payments', {
             method: 'POST',
-            body: JSON.stringify({ supplier_id, amount, payment_date, notes })
+            body: JSON.stringify({ supplier_id, amount, payment_date, notes, currency })
         });
         showToast('تم تسجيل الدفعة ✅');
         closeModal('supPayModal');

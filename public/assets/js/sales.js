@@ -78,8 +78,6 @@ window.openSaleModal = function () {
             </div>
         </div>`;
     document.getElementById('modalContainer').innerHTML = html;
-<<<<<<< HEAD
-=======
     restoreSaleModalState();
 };
 
@@ -176,7 +174,6 @@ window.saveInlinePart = async function () {
         showToast(msg, 'error');
         console.error(e);
     }
->>>>>>> 092fd02fa1e4004e138d6f4f84e824e290f61d74
 };
 
 window.saveSale = async function () {

@@ -23,6 +23,7 @@ class Part extends Model
         'supplier',
         'alert_threshold',
         'status',
+        'image',
     ];
 
     protected $casts = [

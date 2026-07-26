@@ -18,6 +18,7 @@
       supplierPayments: [],
       salesReturns: [],
       purchaseReturns: [],
+      withdrawals: [],
       nextIds: {
         customer: 1,
         supplier: 1,
@@ -28,6 +29,7 @@
         supplierPayment: 1,
         salesReturn: 1,
         purchaseReturn: 1,
+        withdrawal: 1,
       },
     };
   }
@@ -46,12 +48,8 @@
   }
 
   function formatCurrency(amount) {
-    return (
-      parseFloat(amount || 0).toLocaleString("ar-EG", {
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0,
-      }) + " ل.س"
-    );
+    const num = parseFloat(amount || 0);
+    return num.toLocaleString("ar-EG") + " ل.س";
   }
 
   function formatDate(dateStr) {
@@ -113,6 +111,34 @@
     saveDB(db);
   }
 
+  function distributeCustomerPayment(customerId, amount) {
+    const unpaid = db.sales
+      .filter((s) => s.customerId === customerId && s.remaining > 0)
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
+    let remaining = amount;
+    for (const sale of unpaid) {
+      if (remaining <= 0) break;
+      const deduction = Math.min(sale.remaining, remaining);
+      sale.remaining -= deduction;
+      sale.paid += deduction;
+      remaining -= deduction;
+    }
+  }
+
+  function distributeSupplierPayment(supplierId, amount) {
+    const unpaid = db.purchases
+      .filter((p) => p.supplierId === supplierId && p.remaining > 0)
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
+    let remaining = amount;
+    for (const purchase of unpaid) {
+      if (remaining <= 0) break;
+      const deduction = Math.min(purchase.remaining, remaining);
+      purchase.remaining -= deduction;
+      purchase.paid += deduction;
+      remaining -= deduction;
+    }
+  }
+
   function showToast(message, type = "success") {
     const container = document.getElementById("toastContainer");
     const toast = document.createElement("div");
@@ -122,7 +148,99 @@
     setTimeout(() => toast.remove(), 3000);
   }
 
-  // التنقل
+  // ============ البحث المباشر (Searchable Select) ============
+  function initSearchableSelect(inputId, options, onSelect) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+
+    // إنشاء wrapper و dropdown
+    const wrapper = document.createElement("div");
+    wrapper.className = "searchable-select";
+    wrapper.style.position = "relative";
+    input.parentNode.insertBefore(wrapper, input);
+    wrapper.appendChild(input);
+
+    const dropdown = document.createElement("div");
+    dropdown.className = "dropdown-list";
+    wrapper.appendChild(dropdown);
+
+    let selectedValue = null;
+    let selectedText = "";
+
+    function filterOptions(search) {
+      const s = (search || "").toLowerCase();
+      return options.filter(
+        (opt) =>
+          opt.text.toLowerCase().includes(s) ||
+          opt.value.toLowerCase().includes(s),
+      );
+    }
+
+    function renderDropdown(items) {
+      if (items.length === 0) {
+        dropdown.innerHTML =
+          '<div class="dropdown-item" style="color:#999;">لا توجد نتائج</div>';
+      } else {
+        dropdown.innerHTML = items
+          .map(
+            (opt) =>
+              `<div class="dropdown-item" data-value="${opt.value}" data-text="${opt.text}">${opt.text}</div>`,
+          )
+          .join("");
+      }
+      dropdown.classList.add("active");
+    }
+
+    input.addEventListener("focus", () => {
+      const filtered = filterOptions(input.value);
+      renderDropdown(filtered);
+    });
+
+    input.addEventListener("input", () => {
+      selectedValue = null;
+      selectedText = "";
+      const filtered = filterOptions(input.value);
+      renderDropdown(filtered);
+    });
+
+    dropdown.addEventListener("click", (e) => {
+      const item = e.target.closest(".dropdown-item");
+      if (item && item.dataset.value) {
+        selectedValue = item.dataset.value;
+        selectedText = item.dataset.text;
+        input.value = selectedText;
+        dropdown.classList.remove("active");
+        if (onSelect) onSelect(selectedValue, selectedText);
+      }
+    });
+
+    document.addEventListener("click", (e) => {
+      if (!wrapper.contains(e.target)) {
+        dropdown.classList.remove("active");
+        // إذا لم يتم اختيار شيء، أعد النص الأصلي
+        if (!selectedValue && input.value.trim() && options.length > 0) {
+          // يمكن إضافة خيار جديد
+        }
+      }
+    });
+
+    return {
+      getValue: () => selectedValue,
+      getText: () => selectedText,
+      setValue: (val, text) => {
+        selectedValue = val;
+        selectedText = text;
+        input.value = text;
+      },
+      clear: () => {
+        selectedValue = null;
+        selectedText = "";
+        input.value = "";
+      },
+    };
+  }
+
+  // ============ التنقل ============
   const sidebarLinks = document.querySelectorAll(".sidebar-nav a");
   const pages = document.querySelectorAll(".page");
   const sidebar = document.getElementById("sidebar");
@@ -142,14 +260,15 @@
   }
 
   sidebarLinks.forEach((link) => {
-    link.addEventListener("click", () => {
-      navigateTo(link.getAttribute("data-page"));
-    });
+    link.addEventListener("click", () =>
+      navigateTo(link.getAttribute("data-page")),
+    );
   });
 
   mobileMenuBtn.addEventListener("click", () =>
     sidebar.classList.toggle("open"),
   );
+
   document.addEventListener("click", (e) => {
     if (
       window.innerWidth <= 768 &&
@@ -187,67 +306,72 @@
       case "supplier_payments":
         renderSupplierPayments();
         break;
+      case "withdrawals":
+        renderWithdrawals();
+        break;
       case "reports":
         renderReports();
         break;
     }
   }
 
-  // ========== لوحة التحكم ==========
+  // ============ لوحة التحكم ============
   function renderDashboard() {
     const totalCustomers = db.customers.length;
     const totalSuppliers = db.suppliers.length;
-    const totalInventoryItems = db.inventory.length;
-    const totalInventoryQty = db.inventory.reduce(
-      (s, i) => s + (i.quantity || 0),
-      0,
-    );
-    const totalDebts = db.customers.reduce(
+    const totalInventory = db.inventory.length;
+    const totalQty = db.inventory.reduce((s, i) => s + (i.quantity || 0), 0);
+    const totalCustDebts = db.customers.reduce(
       (s, c) => s + Math.max(0, c.balance || 0),
       0,
     );
-    const totalSupplierDebts = db.suppliers.reduce(
+    const totalSuppDebts = db.suppliers.reduce(
       (s, sup) => s + Math.max(0, sup.balance || 0),
       0,
     );
     const lowStock = db.inventory.filter(
       (i) => i.quantity <= (i.minAlert || 5),
     ).length;
+    const totalWithdrawals = db.withdrawals.reduce((s, w) => s + w.amount, 0);
 
     document.getElementById("dashboardStats").innerHTML = `
             <div class="stat-card"><div class="stat-icon blue">👥</div><div class="stat-info"><h3>العملاء</h3><div class="value">${totalCustomers}</div></div></div>
             <div class="stat-card"><div class="stat-icon green">🏭</div><div class="stat-info"><h3>الموردين</h3><div class="value">${totalSuppliers}</div></div></div>
-            <div class="stat-card"><div class="stat-icon blue">📦</div><div class="stat-info"><h3>القطع</h3><div class="value">${totalInventoryItems}</div><small>الكمية: ${totalInventoryQty}</small></div></div>
-            <div class="stat-card"><div class="stat-icon red">💸</div><div class="stat-info"><h3>ديون العملاء</h3><div class="value">${formatCurrency(totalDebts)}</div></div></div>
-            <div class="stat-card"><div class="stat-icon orange">🏦</div><div class="stat-info"><h3>ديون الموردين (علينا)</h3><div class="value">${formatCurrency(totalSupplierDebts)}</div></div></div>
-            <div class="stat-card"><div class="stat-icon orange">⚠️</div><div class="stat-info"><h3>مخزون منخفض</h3><div class="value">${lowStock}</div></div></div>
+            <div class="stat-card"><div class="stat-icon blue">📦</div><div class="stat-info"><h3>القطع</h3><div class="value">${totalInventory}</div><small>الكمية: ${totalQty}</small></div></div>
+            <div class="stat-card"><div class="stat-icon red">💸</div><div class="stat-info"><h3>ديون العملاء</h3><div class="value">${formatCurrency(totalCustDebts)}</div></div></div>
+            <div class="stat-card"><div class="stat-icon orange">🏦</div><div class="stat-info"><h3>ديون للموردين</h3><div class="value">${formatCurrency(totalSuppDebts)}</div></div></div>
+            <div class="stat-card"><div class="stat-icon red">💸</div><div class="stat-info"><h3>إجمالي السحوبات</h3><div class="value">${formatCurrency(totalWithdrawals)}</div></div></div>
         `;
-    // آخر العمليات
-    const recent = [...db.sales, ...db.purchases]
+
+    const recent = [
+      ...db.sales.map((s) => ({ ...s, type: "sale" })),
+      ...db.purchases.map((p) => ({ ...p, type: "purchase" })),
+      ...db.withdrawals.map((w) => ({ ...w, type: "withdrawal" })),
+    ]
       .sort((a, b) => new Date(b.date) - new Date(a.date))
-      .slice(0, 8);
-    let html = "";
+      .slice(0, 10);
+    const div = document.getElementById("recentActivity");
     if (recent.length === 0)
-      html = '<p class="empty-state">📭 لا توجد عمليات</p>';
+      div.innerHTML = '<p class="empty-state">📭 لا توجد عمليات</p>';
     else {
-      html = '<ul style="list-style:none;padding:0;">';
+      let h = '<ul style="list-style:none;padding:0;">';
       recent.forEach((op) => {
-        if (op.customerId) {
-          // sale
+        if (op.type === "sale") {
           const c = getCustomerById(op.customerId);
-          html += `<li style="padding:6px 0;border-bottom:1px solid var(--border);">🛒 بيع لـ ${c ? c.name : "؟"} - ${formatCurrency(op.total)} | ${formatDate(op.date)}</li>`;
-        } else {
-          // purchase
+          h += `<li style="padding:6px 0;border-bottom:1px solid var(--border);">🛒 بيع لـ ${c ? c.name : "؟"} - ${formatCurrency(op.total)} | ${formatDate(op.date)}</li>`;
+        } else if (op.type === "purchase") {
           const s = getSupplierById(op.supplierId);
-          html += `<li style="padding:6px 0;border-bottom:1px solid var(--border);">📥 شراء من ${s ? s.name : "؟"} - ${formatCurrency(op.total)} | ${formatDate(op.date)}</li>`;
+          h += `<li style="padding:6px 0;border-bottom:1px solid var(--border);">📥 شراء من ${s ? s.name : "؟"} - ${formatCurrency(op.total)} | ${formatDate(op.date)}</li>`;
+        } else if (op.type === "withdrawal") {
+          h += `<li style="padding:6px 0;border-bottom:1px solid var(--border);">💸 سحب: ${op.personName} - ${formatCurrency(op.amount)} | ${formatDate(op.date)}</li>`;
         }
       });
-      html += "</ul>";
+      h += "</ul>";
+      div.innerHTML = h;
     }
-    document.getElementById("recentActivity").innerHTML = html;
   }
 
-  // ========== العملاء (دون تغيير كبير) ==========
+  // ============ العملاء ============
   function renderCustomers() {
     const search = (
       document.getElementById("customerSearch")?.value || ""
@@ -266,13 +390,9 @@
         const bal = c.balance || 0;
         let badge =
           bal > 0
-            ? '<span class="badge badge-danger">مدين ' +
-              formatCurrency(bal) +
-              "</span>"
+            ? `<span class="badge badge-danger">مدين ${formatCurrency(bal)}</span>`
             : bal < 0
-              ? '<span class="badge badge-success">دائن ' +
-                formatCurrency(Math.abs(bal)) +
-                "</span>"
+              ? `<span class="badge badge-success">دائن ${formatCurrency(Math.abs(bal))}</span>`
               : '<span class="badge badge-info">متوازن</span>';
         return `<tr><td>${c.id}</td><td>${c.name}</td><td>${c.phone || "-"}</td><td>${c.address || "-"}</td><td>${formatCurrency(bal)}</td><td>${badge}</td>
             <td><button class="btn btn-outline btn-xs" onclick="editCustomer(${c.id})">✏️</button>
@@ -347,7 +467,7 @@
     showToast("تم الحذف 🗑️");
   };
 
-  // ========== الموردين ==========
+  // ============ الموردين ============
   function renderSuppliers() {
     const search = (
       document.getElementById("supplierSearch")?.value || ""
@@ -366,13 +486,9 @@
         const bal = s.balance || 0;
         let badge =
           bal > 0
-            ? '<span class="badge badge-danger">علينا ' +
-              formatCurrency(bal) +
-              "</span>"
+            ? `<span class="badge badge-danger">علينا ${formatCurrency(bal)}</span>`
             : bal < 0
-              ? '<span class="badge badge-success">لنا ' +
-                formatCurrency(Math.abs(bal)) +
-                "</span>"
+              ? `<span class="badge badge-success">لنا ${formatCurrency(Math.abs(bal))}</span>`
               : '<span class="badge badge-info">متوازن</span>';
         return `<tr><td>${s.id}</td><td>${s.name}</td><td>${s.phone || "-"}</td><td>${s.address || "-"}</td><td>${formatCurrency(bal)}</td><td>${badge}</td>
             <td><button class="btn btn-outline btn-xs" onclick="editSupplier(${s.id})">✏️</button>
@@ -449,7 +565,7 @@
     showToast("تم الحذف 🗑️");
   };
 
-  // ========== المستودع مع الصور ==========
+  // ============ المستودع (بدون سعر البيع) ============
   function renderInventory() {
     const search = (
       document.getElementById("inventorySearch")?.value || ""
@@ -466,19 +582,19 @@
     const tbody = document.getElementById("inventoryTableBody");
     if (filtered.length === 0) {
       tbody.innerHTML =
-        '<tr><td colspan="11"><div class="empty-state">📦 لا توجد قطع</div></td></tr>';
+        '<tr><td colspan="10"><div class="empty-state">📦 لا توجد قطع</div></td></tr>';
       return;
     }
     tbody.innerHTML = filtered
       .map((i) => {
         const low = i.quantity <= (i.minAlert || 5);
-        const imgTag = i.image
+        const img = i.image
           ? `<img src="${i.image}" style="width:40px;height:40px;object-fit:cover;border-radius:4px;">`
           : "🚫";
         return `<tr style="${low ? "background:#fff5f5" : ""}">
-                <td>${i.id}</td><td>${imgTag}</td><td><strong>${i.partName}</strong></td><td>${i.partNumber || "-"}</td>
+                <td>${i.id}</td><td>${img}</td><td><strong>${i.partName}</strong></td><td>${i.partNumber || "-"}</td>
                 <td><span class="badge badge-info">${i.category || "أخرى"}</span></td><td>${i.quantity}</td>
-                <td>${formatCurrency(i.purchasePrice)}</td><td>${formatCurrency(i.sellingPrice)}</td><td>${i.supplier || "-"}</td>
+                <td>${formatCurrency(i.purchasePrice)}</td><td>${i.supplier || "-"}</td>
                 <td>${low ? '<span class="badge badge-danger">⚠️ منخفض</span>' : '<span class="badge badge-success">✅ جيد</span>'}</td>
                 <td><button class="btn btn-outline btn-xs" onclick="editInventory(${i.id})">✏️</button>
                 <button class="btn btn-danger btn-xs" onclick="deleteInventory(${i.id})">🗑️</button></td></tr>`;
@@ -511,15 +627,14 @@
         <div class="modal-overlay" id="invModal">
             <div class="modal"><div class="modal-header"><h3>${isEdit ? "✏️ تعديل" : "➕ إضافة"} قطعة</h3><button class="modal-close" onclick="closeModal('invModal')">✕</button></div>
             <div class="modal-body">
-                <div class="form-group"><label>صورة القطعة</label><input type="file" id="partImage" accept="image/*" onchange="previewPartImage()">
-                <img id="partImagePreview" src="${isEdit && item.image ? item.image : ""}" style="max-width:100px;max-height:100px;margin-top:5px;display:${isEdit && item.image ? "block" : "none"}"></div>
+                <div class="form-group"><label>صورة</label><input type="file" id="partImage" accept="image/*" onchange="previewPartImage()">
+                <img id="partImagePreview" src="${isEdit && item.image ? item.image : ""}" style="max-width:100px;max-height:100px;margin-top:5px;display:${isEdit && item.image ? "block" : "none"};"></div>
                 <div class="form-group"><label>الاسم *</label><input id="partName" value="${isEdit ? item.partName : ""}"></div>
                 <div class="form-row"><div class="form-group"><label>رقم القطعة</label><input id="partNumber" value="${isEdit ? item.partNumber || "" : ""}"></div>
                 <div class="form-group"><label>الفئة</label><select id="partCategory">${catOpts}</select></div></div>
                 <div class="form-row"><div class="form-group"><label>الكمية *</label><input type="number" id="partQty" value="${isEdit ? item.quantity : 0}" min="0"></div>
                 <div class="form-group"><label>حد التنبيه</label><input type="number" id="partMinAlert" value="${isEdit ? item.minAlert || 5 : 5}" min="1"></div></div>
-                <div class="form-row"><div class="form-group"><label>سعر الشراء</label><input type="number" id="partPurchasePrice" value="${isEdit ? item.purchasePrice || 0 : 0}" step="0.01"></div>
-                <div class="form-group"><label>سعر البيع *</label><input type="number" id="partSellingPrice" value="${isEdit ? item.sellingPrice || 0 : 0}" step="0.01"></div></div>
+                <div class="form-group"><label>سعر الشراء *</label><input type="number" id="partPurchasePrice" value="${isEdit ? item.purchasePrice || 0 : 0}" step="0.01"></div>
                 <div class="form-group"><label>المورد</label><input id="partSupplier" value="${isEdit ? item.supplier || "" : ""}"></div>
             </div>
             <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal('invModal')">إلغاء</button>
@@ -530,12 +645,12 @@
     const file = document.getElementById("partImage")?.files[0];
     const preview = document.getElementById("partImagePreview");
     if (file && preview) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
+      const r = new FileReader();
+      r.onload = (e) => {
         preview.src = e.target.result;
         preview.style.display = "block";
       };
-      reader.readAsDataURL(file);
+      r.readAsDataURL(file);
     }
   };
   window.editInventory = function (id) {
@@ -556,68 +671,45 @@
       parseInt(document.getElementById("partMinAlert")?.value) || 5;
     const purchasePrice =
       parseFloat(document.getElementById("partPurchasePrice")?.value) || 0;
-    const sellingPrice =
-      parseFloat(document.getElementById("partSellingPrice")?.value) || 0;
-    if (sellingPrice <= 0) {
-      showToast("سعر البيع مطلوب", "error");
-      return;
-    }
     const supplier =
       document.getElementById("partSupplier")?.value.trim() || "";
     const imageInput = document.getElementById("partImage");
-    let image = null;
-    if (id) {
-      const item = getInventoryById(id);
-      if (item) image = item.image || null;
-    }
-    if (imageInput && imageInput.files[0]) {
-      const reader = new FileReader();
-      reader.onload = function (e) {
-        image = e.target.result;
-        finalizeSave(id, {
-          partName,
-          partNumber,
-          category,
-          quantity,
-          minAlert,
-          purchasePrice,
-          sellingPrice,
-          supplier,
-          image,
-        });
-      };
-      reader.readAsDataURL(imageInput.files[0]);
-    } else {
-      finalizeSave(id, {
+    let image = id ? getInventoryById(id)?.image || null : null;
+    const finalize = (img) => {
+      const data = {
         partName,
         partNumber,
         category,
         quantity,
         minAlert,
         purchasePrice,
-        sellingPrice,
         supplier,
-        image,
-      });
+        image: img,
+      };
+      if (id) {
+        const item = getInventoryById(id);
+        if (item) Object.assign(item, data);
+      } else {
+        db.inventory.push({
+          id: generateId("inventory"),
+          ...data,
+          createdAt: new Date().toISOString(),
+        });
+      }
+      saveDB(db);
+      closeModal("invModal");
+      renderInventory();
+      renderDashboard();
+      showToast(id ? "تم التحديث ✅" : "تم الإضافة ✅");
+    };
+    if (imageInput && imageInput.files[0]) {
+      const r = new FileReader();
+      r.onload = (e) => finalize(e.target.result);
+      r.readAsDataURL(imageInput.files[0]);
+    } else {
+      finalize(image);
     }
   };
-  function finalizeSave(id, data) {
-    if (id) {
-      const item = getInventoryById(id);
-      if (item) Object.assign(item, data);
-    } else {
-      db.inventory.push({
-        id: generateId("inventory"),
-        ...data,
-        createdAt: new Date().toISOString(),
-      });
-    }
-    saveDB(db);
-    closeModal("invModal");
-    renderInventory();
-    renderDashboard();
-    showToast(id ? "تم التحديث ✅" : "تم الإضافة ✅");
-  }
   window.deleteInventory = function (id) {
     const item = getInventoryById(id);
     if (!item) return;
@@ -636,7 +728,7 @@
     showToast("تم الحذف 🗑️");
   };
 
-  // ========== المبيعات (مع المرتجعات) ==========
+  // ============ المبيعات (مع سعر البيع اليدوي) ============
   function renderSales() {
     const search = (
       document.getElementById("saleSearch")?.value || ""
@@ -653,7 +745,7 @@
     const tbody = document.getElementById("salesTableBody");
     if (filtered.length === 0) {
       tbody.innerHTML =
-        '<tr><td colspan="10"><div class="empty-state">🛒 لا توجد مبيعات</div></td></tr>';
+        '<tr><td colspan="11"><div class="empty-state">🛒 لا توجد مبيعات</div></td></tr>';
       return;
     }
     tbody.innerHTML = filtered
@@ -670,102 +762,133 @@
             : '<span class="badge badge-danger">📌 دين</span>';
         return `<tr>
                 <td>${s.id}</td><td>${formatDate(s.date)}</td><td>${c ? c.name : "?"}</td><td>${inv ? inv.partName : "?"}</td>
-                <td>${netQty} ${returns > 0 ? `<small style="color:var(--danger)">(مرتجع ${returns})</small>` : ""}</td>
-                <td>${formatCurrency(s.total)}</td><td>${formatCurrency(s.paid)}</td><td>${formatCurrency(s.remaining)}</td>
-                <td>${status}</td>
+                <td>${netQty}${returns > 0 ? ` <small style="color:var(--danger)">(مرتجع ${returns})</small>` : ""}</td>
+                <td>${formatCurrency(s.unitPrice)}</td><td>${formatCurrency(s.total)}</td><td>${formatCurrency(s.paid)}</td>
+                <td>${formatCurrency(s.remaining)}</td><td>${status}</td>
                 <td><button class="btn btn-danger btn-xs" onclick="deleteSale(${s.id})">🗑️</button>
-                <button class="btn btn-warning btn-xs" onclick="openSalesReturnModal(${s.id})" style="background:var(--warning);color:#fff;border:none;">↩️ مرتجع</button></td>
-            </tr>`;
+                <button class="btn btn-xs" onclick="openSalesReturnModal(${s.id})" style="background:var(--warning);color:#fff;">↩️ مرتجع</button></td></tr>`;
       })
       .join("");
   }
 
   window.openSaleModal = function () {
-    /* كما السابق مع إضافة purchasePriceAtSale */
-    if (db.customers.length === 0) {
-      showToast("أضف عميلاً أولاً", "error");
-      return;
-    }
-    const availInv = db.inventory.filter((i) => i.quantity > 0);
-    if (availInv.length === 0) {
+    const custOpts = db.customers.map((c) => ({
+      value: String(c.id),
+      text: `${c.name} - ${c.phone || ""}`,
+    }));
+    const invOpts = db.inventory
+      .filter((i) => i.quantity > 0)
+      .map((i) => ({
+        value: String(i.id),
+        text: `${i.partName} (${i.partNumber || ""}) - متاح:${i.quantity}`,
+      }));
+    if (invOpts.length === 0) {
       showToast("لا توجد قطع متاحة", "error");
       return;
     }
-    const custOpts = db.customers
-      .map(
-        (c) =>
-          `<option value="${c.id}">${c.name} (${formatCurrency(c.balance || 0)})</option>`,
-      )
-      .join("");
-    const invOpts = availInv
-      .map(
-        (i) =>
-          `<option value="${i.id}" data-price="${i.sellingPrice}" data-purchase="${i.purchasePrice}">${i.partName} - ${formatCurrency(i.sellingPrice)} (${i.quantity})</option>`,
-      )
-      .join("");
     const html = `
         <div class="modal-overlay" id="saleModal">
             <div class="modal"><div class="modal-header"><h3>🛒 بيع</h3><button class="modal-close" onclick="closeModal('saleModal')">✕</button></div>
             <div class="modal-body">
-                <div class="form-group"><label>العميل</label><select id="saleCustomer">${custOpts}</select></div>
-                <div class="form-group"><label>القطعة</label><select id="saleInventory" onchange="updateSalePrice()">${invOpts}</select></div>
+                <div class="form-group"><label>العميل (ابحث أو اكتب اسماً جديداً)</label><input id="saleCustomerInput" placeholder="اكتب اسم العميل..."></div>
+                <div class="form-group"><label>القطعة (ابحث أو اكتب)</label><input id="saleInventoryInput" placeholder="اكتب اسم القطعة..."></div>
                 <div class="form-row"><div class="form-group"><label>الكمية</label><input type="number" id="saleQty" value="1" min="1" oninput="updateSaleTotal()"></div>
-                <div class="form-group"><label>سعر البيع</label><input type="number" id="saleUnitPrice" step="0.01" oninput="updateSaleTotal()"></div></div>
-                <div class="form-row"><div class="form-group"><label>الإجمالي</label><input id="saleTotal" readonly></div>
+                <div class="form-group"><label>سعر البيع للوحدة *</label><input type="number" id="saleUnitPrice" step="0.01" oninput="updateSaleTotal()" placeholder="أدخل سعر البيع"></div></div>
+                <div class="form-row"><div class="form-group"><label>الإجمالي</label><input id="saleTotal" readonly style="background:#f1f5f9;font-weight:700;"></div>
                 <div class="form-group"><label>المدفوع</label><input type="number" id="salePaid" value="0" step="0.01" oninput="updateSaleRemaining()"></div></div>
-                <div class="form-group"><label>المتبقي</label><input id="saleRemaining" readonly></div>
+                <div class="form-group"><label>المتبقي</label><input id="saleRemaining" readonly style="background:#fef3c7;font-weight:700;color:var(--danger);"></div>
             </div>
             <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal('saleModal')">إلغاء</button>
             <button class="btn btn-primary" onclick="saveSale()">💾 حفظ</button></div></div></div>`;
     document.getElementById("modalContainer").innerHTML = html;
-    updateSalePrice();
+
+    // Searchable selects
+    setTimeout(() => {
+      window._saleCustomerSelect = initSearchableSelect(
+        "saleCustomerInput",
+        custOpts,
+        (val, text) => {},
+      );
+      window._saleInventorySelect = initSearchableSelect(
+        "saleInventoryInput",
+        invOpts,
+        (val, text) => {
+          updateSaleTotal();
+        },
+      );
+      updateSaleTotal();
+    }, 100);
   };
-  window.updateSalePrice = function () {
-    const sel = document.getElementById("saleInventory");
-    if (sel?.selectedOptions[0]) {
-      document.getElementById("saleUnitPrice").value =
-        sel.selectedOptions[0].dataset.price;
-    }
-    updateSaleTotal();
-  };
+
   window.updateSaleTotal = function () {
     const qty = parseInt(document.getElementById("saleQty")?.value) || 0;
     const price =
       parseFloat(document.getElementById("saleUnitPrice")?.value) || 0;
-    document.getElementById("saleTotal").value = (qty * price).toFixed(2);
+    const total = qty * price;
+    const totalInput = document.getElementById("saleTotal");
+    if (totalInput) totalInput.value = total.toFixed(2);
     updateSaleRemaining();
   };
   window.updateSaleRemaining = function () {
     const total = parseFloat(document.getElementById("saleTotal")?.value) || 0;
     const paid = parseFloat(document.getElementById("salePaid")?.value) || 0;
-    document.getElementById("saleRemaining").value = Math.max(
-      0,
-      total - paid,
-    ).toFixed(2);
+    const rem = document.getElementById("saleRemaining");
+    if (rem) rem.value = Math.max(0, total - paid).toFixed(2);
   };
+
   window.saveSale = function () {
-    const customerId = parseInt(document.getElementById("saleCustomer")?.value);
-    const inventoryId = parseInt(
-      document.getElementById("saleInventory")?.value,
-    );
+    const customerInput = document
+      .getElementById("saleCustomerInput")
+      ?.value.trim();
+    const inventoryInput = document
+      .getElementById("saleInventoryInput")
+      ?.value.trim();
     const quantity = parseInt(document.getElementById("saleQty")?.value) || 0;
     const unitPrice =
       parseFloat(document.getElementById("saleUnitPrice")?.value) || 0;
     const total = parseFloat(document.getElementById("saleTotal")?.value) || 0;
     const paid = parseFloat(document.getElementById("salePaid")?.value) || 0;
     const remaining = Math.max(0, total - paid);
-    if (!customerId || !inventoryId || quantity <= 0 || unitPrice <= 0) {
+
+    if (!customerInput || !inventoryInput || quantity <= 0 || unitPrice <= 0) {
       showToast("بيانات غير صحيحة", "error");
       return;
     }
+
+    // البحث عن العميل أو إنشاء جديد
+    let customerId = window._saleCustomerSelect?.getValue();
+    if (!customerId) {
+      // إنشاء عميل جديد
+      const newCust = {
+        id: generateId("customer"),
+        name: customerInput,
+        phone: "",
+        address: "",
+        balance: 0,
+        createdAt: new Date().toISOString(),
+      };
+      db.customers.push(newCust);
+      customerId = newCust.id;
+    } else {
+      customerId = parseInt(customerId);
+    }
+
+    // البحث عن القطعة
+    let inventoryId = window._saleInventorySelect?.getValue();
+    if (!inventoryId) {
+      showToast("الرجاء اختيار قطعة من القائمة", "error");
+      return;
+    }
+    inventoryId = parseInt(inventoryId);
+
     const inv = getInventoryById(inventoryId);
     if (!inv || inv.quantity < quantity) {
       showToast("المخزون غير كاف", "error");
       return;
     }
-    const purchasePriceAtSale = inv.purchasePrice || 0;
+
     inv.quantity -= quantity;
-    db.sales.push({
+    const sale = {
       id: generateId("sale"),
       customerId,
       inventoryId,
@@ -774,9 +897,10 @@
       total,
       paid,
       remaining,
-      purchasePriceAtSale,
+      purchasePriceAtSale: inv.purchasePrice || 0,
       date: new Date().toISOString(),
-    });
+    };
+    db.sales.push(sale);
     updateCustomerBalance(customerId);
     saveDB(db);
     closeModal("saleModal");
@@ -785,13 +909,13 @@
     renderDashboard();
     showToast("تم البيع ✅");
   };
+
   window.deleteSale = function (id) {
     const sale = db.sales.find((s) => s.id === id);
     if (!sale) return;
-    if (!confirm("حذف الفاتورة؟ سيتم إرجاع الكمية.")) return;
+    if (!confirm("حذف الفاتورة؟")) return;
     const inv = getInventoryById(sale.inventoryId);
     if (inv) inv.quantity += sale.quantity;
-    // إلغاء المرتجعات المرتبطة
     const returns = db.salesReturns.filter((r) => r.saleId === id);
     returns.forEach((r) => {
       const inv2 = getInventoryById(r.inventoryId);
@@ -806,29 +930,27 @@
     renderDashboard();
     showToast("تم الحذف 🗑️");
   };
-  // مرتجع مبيعات
+
   window.openSalesReturnModal = function (saleId) {
     const sale = db.sales.find((s) => s.id === saleId);
     if (!sale) return;
     const inv = getInventoryById(sale.inventoryId);
-    const alreadyReturned = db.salesReturns
+    const already = db.salesReturns
       .filter((r) => r.saleId === saleId)
       .reduce((s, r) => s + r.quantity, 0);
-    const maxReturn = sale.quantity - alreadyReturned;
-    if (maxReturn <= 0) {
+    const max = sale.quantity - already;
+    if (max <= 0) {
       showToast("لا يمكن إرجاع كمية إضافية", "error");
       return;
     }
     const html = `
         <div class="modal-overlay" id="retModal">
             <div class="modal"><div class="modal-header"><h3>↩️ مرتجع بيع #${sale.id}</h3><button class="modal-close" onclick="closeModal('retModal')">✕</button></div>
-            <div class="modal-body">
-                <p>القطعة: ${inv ? inv.partName : "?"} | الكمية المباعة: ${sale.quantity} | أقصى إرجاع: ${maxReturn}</p>
-                <div class="form-group"><label>الكمية المرتجعة</label><input type="number" id="retQty" min="1" max="${maxReturn}" value="1"></div>
-                <div class="form-group"><label>السبب</label><input id="retReason"></div>
-            </div>
+            <div class="modal-body"><p>القطعة: ${inv ? inv.partName : "?"} | أقصى إرجاع: ${max}</p>
+            <div class="form-group"><label>الكمية</label><input type="number" id="retQty" min="1" max="${max}" value="1"></div>
+            <div class="form-group"><label>السبب</label><input id="retReason"></div></div>
             <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal('retModal')">إلغاء</button>
-            <button class="btn btn-danger" onclick="saveSalesReturn(${saleId})">تأكيد المرتجع</button></div></div></div>`;
+            <button class="btn btn-danger" onclick="saveSalesReturn(${saleId})">تأكيد</button></div></div></div>`;
     document.getElementById("modalContainer").innerHTML = html;
   };
   window.saveSalesReturn = function (saleId) {
@@ -836,10 +958,10 @@
     if (!sale) return;
     const qty = parseInt(document.getElementById("retQty")?.value) || 0;
     const reason = document.getElementById("retReason")?.value || "";
-    const alreadyReturned = db.salesReturns
+    const already = db.salesReturns
       .filter((r) => r.saleId === saleId)
       .reduce((s, r) => s + r.quantity, 0);
-    if (qty <= 0 || qty > sale.quantity - alreadyReturned) {
+    if (qty <= 0 || qty > sale.quantity - already) {
       showToast("كمية غير صالحة", "error");
       return;
     }
@@ -854,7 +976,6 @@
       date: new Date().toISOString(),
       reason,
     });
-    // تحديث رصيد العميل (يتم حسابه ديناميكياً)
     updateCustomerBalance(sale.customerId);
     saveDB(db);
     closeModal("retModal");
@@ -864,7 +985,7 @@
     showToast("تم المرتجع ✅");
   };
 
-  // ========== المشتريات (مع مرتجعات) ==========
+  // ============ المشتريات ============
   function renderPurchases() {
     const search = (
       document.getElementById("purchaseSearch")?.value || ""
@@ -881,7 +1002,7 @@
     const tbody = document.getElementById("purchasesTableBody");
     if (filtered.length === 0) {
       tbody.innerHTML =
-        '<tr><td colspan="10"><div class="empty-state">📥 لا توجد مشتريات</div></td></tr>';
+        '<tr><td colspan="11"><div class="empty-state">📥 لا توجد مشتريات</div></td></tr>';
       return;
     }
     tbody.innerHTML = filtered
@@ -898,93 +1019,114 @@
             : '<span class="badge badge-danger">📌 دين</span>';
         return `<tr>
                 <td>${p.id}</td><td>${formatDate(p.date)}</td><td>${s ? s.name : "?"}</td><td>${inv ? inv.partName : "?"}</td>
-                <td>${netQty} ${returns > 0 ? `<small style="color:var(--danger)">(مرتجع ${returns})</small>` : ""}</td>
-                <td>${formatCurrency(p.total)}</td><td>${formatCurrency(p.paid)}</td><td>${formatCurrency(p.remaining)}</td>
-                <td>${status}</td>
+                <td>${netQty}${returns > 0 ? ` <small style="color:var(--danger)">(مرتجع ${returns})</small>` : ""}</td>
+                <td>${formatCurrency(p.unitPrice)}</td><td>${formatCurrency(p.total)}</td><td>${formatCurrency(p.paid)}</td>
+                <td>${formatCurrency(p.remaining)}</td><td>${status}</td>
                 <td><button class="btn btn-danger btn-xs" onclick="deletePurchase(${p.id})">🗑️</button>
-                <button class="btn btn-warning btn-xs" onclick="openPurchaseReturnModal(${p.id})" style="background:var(--warning);color:#fff;">↩️ مرتجع</button></td>
-            </tr>`;
+                <button class="btn btn-xs" onclick="openPurchaseReturnModal(${p.id})" style="background:var(--warning);color:#fff;">↩️ مرتجع</button></td></tr>`;
       })
       .join("");
   }
+
   window.openPurchaseModal = function () {
-    if (db.suppliers.length === 0) {
-      showToast("أضف مورداً أولاً", "error");
-      return;
-    }
-    // اختيار قطعة موجودة أو إضافة جديدة؟ سنستخدم القطع الموجودة (أو يمكن إنشاء قطعة جديدة)
-    const supOpts = db.suppliers
-      .map((s) => `<option value="${s.id}">${s.name}</option>`)
-      .join("");
-    const invOpts = db.inventory
-      .map(
-        (i) =>
-          `<option value="${i.id}" data-purchase="${i.purchasePrice}">${i.partName} (شراء ${formatCurrency(i.purchasePrice)})</option>`,
-      )
-      .join("");
+    const supOpts = db.suppliers.map((s) => ({
+      value: String(s.id),
+      text: `${s.name} - ${s.phone || ""}`,
+    }));
+    const invOpts = db.inventory.map((i) => ({
+      value: String(i.id),
+      text: `${i.partName} (${i.partNumber || ""})`,
+    }));
     const html = `
         <div class="modal-overlay" id="purModal">
-            <div class="modal"><div class="modal-header"><h3>🧾 شراء من مورد</h3><button class="modal-close" onclick="closeModal('purModal')">✕</button></div>
+            <div class="modal"><div class="modal-header"><h3>🧾 شراء</h3><button class="modal-close" onclick="closeModal('purModal')">✕</button></div>
             <div class="modal-body">
-                <div class="form-group"><label>المورد</label><select id="purSupplier">${supOpts}</select></div>
-                <div class="form-group"><label>القطعة</label><select id="purInventory" onchange="updatePurPrice()">${invOpts}</select></div>
+                <div class="form-group"><label>المورد (ابحث أو اكتب)</label><input id="purSupplierInput" placeholder="اكتب اسم المورد..."></div>
+                <div class="form-group"><label>القطعة (ابحث أو اكتب)</label><input id="purInventoryInput" placeholder="اكتب اسم القطعة..."></div>
                 <div class="form-row"><div class="form-group"><label>الكمية</label><input type="number" id="purQty" value="1" min="1" oninput="updatePurTotal()"></div>
                 <div class="form-group"><label>سعر الشراء</label><input type="number" id="purUnitPrice" step="0.01" oninput="updatePurTotal()"></div></div>
-                <div class="form-row"><div class="form-group"><label>الإجمالي</label><input id="purTotal" readonly></div>
+                <div class="form-row"><div class="form-group"><label>الإجمالي</label><input id="purTotal" readonly style="background:#f1f5f9;font-weight:700;"></div>
                 <div class="form-group"><label>المدفوع</label><input type="number" id="purPaid" value="0" step="0.01" oninput="updatePurRemaining()"></div></div>
-                <div class="form-group"><label>المتبقي</label><input id="purRemaining" readonly></div>
+                <div class="form-group"><label>المتبقي</label><input id="purRemaining" readonly style="background:#fef3c7;font-weight:700;color:var(--danger);"></div>
             </div>
             <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal('purModal')">إلغاء</button>
             <button class="btn btn-primary" onclick="savePurchase()">💾 حفظ</button></div></div></div>`;
     document.getElementById("modalContainer").innerHTML = html;
-    updatePurPrice();
-  };
-  window.updatePurPrice = function () {
-    const sel = document.getElementById("purInventory");
-    if (sel?.selectedOptions[0]) {
-      document.getElementById("purUnitPrice").value =
-        sel.selectedOptions[0].dataset.purchase;
-    }
-    updatePurTotal();
+    setTimeout(() => {
+      window._purSupplierSelect = initSearchableSelect(
+        "purSupplierInput",
+        supOpts,
+        (val, text) => {},
+      );
+      window._purInventorySelect = initSearchableSelect(
+        "purInventoryInput",
+        invOpts,
+        (val, text) => {
+          updatePurTotal();
+        },
+      );
+      updatePurTotal();
+    }, 100);
   };
   window.updatePurTotal = function () {
     const qty = parseInt(document.getElementById("purQty")?.value) || 0;
     const price =
       parseFloat(document.getElementById("purUnitPrice")?.value) || 0;
-    document.getElementById("purTotal").value = (qty * price).toFixed(2);
+    const total = qty * price;
+    const ti = document.getElementById("purTotal");
+    if (ti) ti.value = total.toFixed(2);
     updatePurRemaining();
   };
   window.updatePurRemaining = function () {
     const total = parseFloat(document.getElementById("purTotal")?.value) || 0;
     const paid = parseFloat(document.getElementById("purPaid")?.value) || 0;
-    document.getElementById("purRemaining").value = Math.max(
-      0,
-      total - paid,
-    ).toFixed(2);
+    const ri = document.getElementById("purRemaining");
+    if (ri) ri.value = Math.max(0, total - paid).toFixed(2);
   };
   window.savePurchase = function () {
-    const supplierId = parseInt(document.getElementById("purSupplier")?.value);
-    const inventoryId = parseInt(
-      document.getElementById("purInventory")?.value,
-    );
+    const supplierInput = document
+      .getElementById("purSupplierInput")
+      ?.value.trim();
+    const inventoryInput = document
+      .getElementById("purInventoryInput")
+      ?.value.trim();
     const quantity = parseInt(document.getElementById("purQty")?.value) || 0;
     const unitPrice =
       parseFloat(document.getElementById("purUnitPrice")?.value) || 0;
     const total = parseFloat(document.getElementById("purTotal")?.value) || 0;
     const paid = parseFloat(document.getElementById("purPaid")?.value) || 0;
     const remaining = Math.max(0, total - paid);
-    if (!supplierId || !inventoryId || quantity <= 0 || unitPrice <= 0) {
+    if (!supplierInput || !inventoryInput || quantity <= 0 || unitPrice <= 0) {
       showToast("بيانات غير صحيحة", "error");
       return;
     }
+    let supplierId = window._purSupplierSelect?.getValue();
+    if (!supplierId) {
+      const newSup = {
+        id: generateId("supplier"),
+        name: supplierInput,
+        phone: "",
+        address: "",
+        balance: 0,
+        createdAt: new Date().toISOString(),
+      };
+      db.suppliers.push(newSup);
+      supplierId = newSup.id;
+    } else {
+      supplierId = parseInt(supplierId);
+    }
+    let inventoryId = window._purInventorySelect?.getValue();
+    if (!inventoryId) {
+      showToast("اختر قطعة من القائمة", "error");
+      return;
+    }
+    inventoryId = parseInt(inventoryId);
     const inv = getInventoryById(inventoryId);
     if (!inv) {
       showToast("القطعة غير موجودة", "error");
       return;
     }
-    // زيادة المخزون وتحديث سعر الشراء في القطعة (اختياري)
     inv.quantity += quantity;
-    // يمكن تحديث purchasePrice إلى سعر الشراء الجديد إذا أردت
     inv.purchasePrice = unitPrice;
     db.purchases.push({
       id: generateId("purchase"),
@@ -1006,74 +1148,71 @@
     showToast("تم الشراء ✅");
   };
   window.deletePurchase = function (id) {
-    const pur = db.purchases.find((p) => p.id === id);
-    if (!pur) return;
-    if (!confirm("حذف الفاتورة؟ سيتم إنقاص المخزون.")) return;
-    const inv = getInventoryById(pur.inventoryId);
-    if (inv) inv.quantity = Math.max(0, inv.quantity - pur.quantity);
+    const p = db.purchases.find((x) => x.id === id);
+    if (!p) return;
+    if (!confirm("حذف الفاتورة؟")) return;
+    const inv = getInventoryById(p.inventoryId);
+    if (inv) inv.quantity = Math.max(0, inv.quantity - p.quantity);
     const returns = db.purchaseReturns.filter((r) => r.purchaseId === id);
     returns.forEach((r) => {
       const inv2 = getInventoryById(r.inventoryId);
       if (inv2) inv2.quantity = Math.max(0, inv2.quantity - r.quantity);
     });
     db.purchaseReturns = db.purchaseReturns.filter((r) => r.purchaseId !== id);
-    db.purchases = db.purchases.filter((p) => p.id !== id);
-    updateSupplierBalance(pur.supplierId);
+    db.purchases = db.purchases.filter((x) => x.id !== id);
+    updateSupplierBalance(p.supplierId);
     saveDB(db);
     renderPurchases();
     renderInventory();
     renderDashboard();
-    showToast("تم الحذف 🗑️");
+    showToast("تم الحذف");
   };
-  // مرتجع مشتريات
   window.openPurchaseReturnModal = function (purchaseId) {
-    const pur = db.purchases.find((p) => p.id === purchaseId);
-    if (!pur) return;
-    const inv = getInventoryById(pur.inventoryId);
-    const alreadyReturned = db.purchaseReturns
+    const p = db.purchases.find((x) => x.id === purchaseId);
+    if (!p) return;
+    const inv = getInventoryById(p.inventoryId);
+    const already = db.purchaseReturns
       .filter((r) => r.purchaseId === purchaseId)
       .reduce((s, r) => s + r.quantity, 0);
-    const maxReturn = pur.quantity - alreadyReturned;
-    if (maxReturn <= 0) {
+    const max = p.quantity - already;
+    if (max <= 0) {
       showToast("لا يمكن إرجاع كمية إضافية", "error");
       return;
     }
     const html = `
         <div class="modal-overlay" id="retPurModal">
-            <div class="modal"><div class="modal-header"><h3>↩️ مرتجع شراء #${pur.id}</h3><button class="modal-close" onclick="closeModal('retPurModal')">✕</button></div>
-            <div class="modal-body">
-                <p>القطعة: ${inv ? inv.partName : "?"} | الكمية المشتراة: ${pur.quantity} | أقصى إرجاع: ${maxReturn}</p>
-                <div class="form-group"><label>الكمية</label><input type="number" id="retPurQty" min="1" max="${maxReturn}" value="1"></div>
-                <div class="form-group"><label>السبب</label><input id="retPurReason"></div>
-            </div>
+            <div class="modal"><div class="modal-header"><h3>↩️ مرتجع شراء #${p.id}</h3><button class="modal-close" onclick="closeModal('retPurModal')">✕</button></div>
+            <div class="modal-body"><p>القطعة: ${inv ? inv.partName : "?"} | أقصى إرجاع: ${max}</p>
+            <div class="form-group"><label>الكمية</label><input type="number" id="retPurQty" min="1" max="${max}" value="1"></div>
+            <div class="form-group"><label>السبب</label><input id="retPurReason"></div></div>
             <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal('retPurModal')">إلغاء</button>
             <button class="btn btn-danger" onclick="savePurchaseReturn(${purchaseId})">تأكيد</button></div></div></div>`;
     document.getElementById("modalContainer").innerHTML = html;
   };
   window.savePurchaseReturn = function (purchaseId) {
-    const pur = db.purchases.find((p) => p.id === purchaseId);
-    if (!pur) return;
+    const p = db.purchases.find((x) => x.id === purchaseId);
+    if (!p) return;
     const qty = parseInt(document.getElementById("retPurQty")?.value) || 0;
     const reason = document.getElementById("retPurReason")?.value || "";
-    const alreadyReturned = db.purchaseReturns
+    const already = db.purchaseReturns
       .filter((r) => r.purchaseId === purchaseId)
       .reduce((s, r) => s + r.quantity, 0);
-    if (qty <= 0 || qty > pur.quantity - alreadyReturned) {
+    if (qty <= 0 || qty > p.quantity - already) {
       showToast("كمية غير صالحة", "error");
       return;
     }
-    const inv = getInventoryById(pur.inventoryId);
+    const inv = getInventoryById(p.inventoryId);
     if (inv) inv.quantity = Math.max(0, inv.quantity - qty);
     db.purchaseReturns.push({
       id: generateId("purchaseReturn"),
       purchaseId,
-      supplierId: pur.supplierId,
-      inventoryId: pur.inventoryId,
+      supplierId: p.supplierId,
+      inventoryId: p.inventoryId,
       quantity: qty,
       date: new Date().toISOString(),
       reason,
     });
-    updateSupplierBalance(pur.supplierId);
+    updateSupplierBalance(p.supplierId);
     saveDB(db);
     closeModal("retPurModal");
     renderPurchases();
@@ -1082,7 +1221,7 @@
     showToast("تم المرتجع ✅");
   };
 
-  // ========== المدفوعات ==========
+  // ============ التسديدات ============
   function renderPayments() {
     const search = (
       document.getElementById("paymentSearch")?.value || ""
@@ -1107,16 +1246,73 @@
       .join("");
   }
   window.openPaymentModal = function () {
-    /* كما السابق مع توزيع الدفع */
+    const custOpts = db.customers.map((c) => ({
+      value: String(c.id),
+      text: `${c.name} - رصيد: ${formatCurrency(c.balance || 0)}`,
+    }));
+    const html = `
+        <div class="modal-overlay" id="payModal">
+            <div class="modal"><div class="modal-header"><h3>💵 تسجيل دفعة</h3><button class="modal-close" onclick="closeModal('payModal')">✕</button></div>
+            <div class="modal-body">
+                <div class="form-group"><label>العميل (ابحث)</label><input id="payCustomerInput" placeholder="ابحث عن عميل..."></div>
+                <div class="form-row"><div class="form-group"><label>المبلغ</label><input type="number" id="payAmount" step="0.01"></div>
+                <div class="form-group"><label>التاريخ</label><input type="date" id="payDate"></div></div>
+                <div class="form-group"><label>ملاحظات</label><textarea id="payNote" rows="2"></textarea></div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal('payModal')">إلغاء</button>
+            <button class="btn btn-success" onclick="savePayment()">💾 حفظ</button></div></div></div>`;
+    document.getElementById("modalContainer").innerHTML = html;
+    document.getElementById("payDate").value = new Date()
+      .toISOString()
+      .split("T")[0];
+    setTimeout(() => {
+      window._payCustomerSelect = initSearchableSelect(
+        "payCustomerInput",
+        custOpts,
+        () => {},
+      );
+    }, 100);
   };
   window.savePayment = function () {
-    /* ... مع updateCustomerBalance */
+    const customerId = parseInt(window._payCustomerSelect?.getValue());
+    const amount = parseFloat(document.getElementById("payAmount")?.value) || 0;
+    const date = document.getElementById("payDate")?.value;
+    const note = document.getElementById("payNote")?.value || "";
+    if (!customerId || amount <= 0) {
+      showToast("بيانات غير صحيحة", "error");
+      return;
+    }
+    distributeCustomerPayment(customerId, amount);
+    db.payments.push({
+      id: generateId("payment"),
+      customerId,
+      amount,
+      date: new Date(date).toISOString(),
+      note,
+      createdAt: new Date().toISOString(),
+    });
+    updateCustomerBalance(customerId);
+    saveDB(db);
+    closeModal("payModal");
+    renderPayments();
+    renderDashboard();
+    renderCustomers();
+    showToast("تم التسديد ✅");
   };
   window.deletePayment = function (id) {
-    /* ... */
+    const p = db.payments.find((x) => x.id === id);
+    if (!p) return;
+    if (!confirm("حذف الدفعة؟")) return;
+    db.payments = db.payments.filter((x) => x.id !== id);
+    updateCustomerBalance(p.customerId);
+    saveDB(db);
+    renderPayments();
+    renderDashboard();
+    renderCustomers();
+    showToast("تم الحذف");
   };
 
-  // ========== مدفوعات الموردين ==========
+  // ============ مدفوعات الموردين ============
   function renderSupplierPayments() {
     const search = (
       document.getElementById("supplierPaymentSearch")?.value || ""
@@ -1141,20 +1337,18 @@
       .join("");
   }
   window.openSupplierPaymentModal = function () {
-    const supOpts = db.suppliers
-      .map(
-        (s) =>
-          `<option value="${s.id}">${s.name} (${formatCurrency(s.balance || 0)})</option>`,
-      )
-      .join("");
+    const supOpts = db.suppliers.map((s) => ({
+      value: String(s.id),
+      text: `${s.name} - رصيد: ${formatCurrency(s.balance || 0)}`,
+    }));
     const html = `
         <div class="modal-overlay" id="supPayModal">
-            <div class="modal"><div class="modal-header"><h3>💵 دفع للمورد</h3><button class="modal-close" onclick="closeModal('supPayModal')">✕</button></div>
+            <div class="modal"><div class="modal-header"><h3>💵 دفع لمورد</h3><button class="modal-close" onclick="closeModal('supPayModal')">✕</button></div>
             <div class="modal-body">
-                <div class="form-group"><label>المورد</label><select id="supPaySupplier">${supOpts}</select></div>
+                <div class="form-group"><label>المورد (ابحث)</label><input id="supPaySupplierInput" placeholder="ابحث عن مورد..."></div>
                 <div class="form-row"><div class="form-group"><label>المبلغ</label><input type="number" id="supPayAmount" step="0.01"></div>
                 <div class="form-group"><label>التاريخ</label><input type="date" id="supPayDate"></div></div>
-                <div class="form-group"><label>ملاحظات</label><input id="supPayNote"></div>
+                <div class="form-group"><label>ملاحظات</label><textarea id="supPayNote" rows="2"></textarea></div>
             </div>
             <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal('supPayModal')">إلغاء</button>
             <button class="btn btn-success" onclick="saveSupplierPayment()">💾 حفظ</button></div></div></div>`;
@@ -1162,11 +1356,16 @@
     document.getElementById("supPayDate").value = new Date()
       .toISOString()
       .split("T")[0];
+    setTimeout(() => {
+      window._supPaySupplierSelect = initSearchableSelect(
+        "supPaySupplierInput",
+        supOpts,
+        () => {},
+      );
+    }, 100);
   };
   window.saveSupplierPayment = function () {
-    const supplierId = parseInt(
-      document.getElementById("supPaySupplier")?.value,
-    );
+    const supplierId = parseInt(window._supPaySupplierSelect?.getValue());
     const amount =
       parseFloat(document.getElementById("supPayAmount")?.value) || 0;
     const date = document.getElementById("supPayDate")?.value;
@@ -1175,12 +1374,14 @@
       showToast("بيانات غير صحيحة", "error");
       return;
     }
+    distributeSupplierPayment(supplierId, amount);
     db.supplierPayments.push({
       id: generateId("supplierPayment"),
       supplierId,
       amount,
       date: new Date(date).toISOString(),
       note,
+      createdAt: new Date().toISOString(),
     });
     updateSupplierBalance(supplierId);
     saveDB(db);
@@ -1191,10 +1392,10 @@
     showToast("تم الدفع ✅");
   };
   window.deleteSupplierPayment = function (id) {
-    const sp = db.supplierPayments.find((p) => p.id === id);
+    const sp = db.supplierPayments.find((x) => x.id === id);
     if (!sp) return;
     if (!confirm("حذف الدفعة؟")) return;
-    db.supplierPayments = db.supplierPayments.filter((p) => p.id !== id);
+    db.supplierPayments = db.supplierPayments.filter((x) => x.id !== id);
     updateSupplierBalance(sp.supplierId);
     saveDB(db);
     renderSupplierPayments();
@@ -1203,13 +1404,89 @@
     showToast("تم الحذف");
   };
 
-  // ========== التقارير (أرباح شهرية، قيمة المخزون بسعر الشراء) ==========
+  // ============ السحوبات ============
+  function renderWithdrawals() {
+    const search = (
+      document.getElementById("withdrawalSearch")?.value || ""
+    ).toLowerCase();
+    let filtered = db.withdrawals.filter(
+      (w) =>
+        w.personName.toLowerCase().includes(search) ||
+        (w.reason || "").toLowerCase().includes(search),
+    );
+    filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
+    const tbody = document.getElementById("withdrawalsTableBody");
+    if (filtered.length === 0) {
+      tbody.innerHTML =
+        '<tr><td colspan="6"><div class="empty-state">💸 لا توجد سحوبات</div></td></tr>';
+      return;
+    }
+    tbody.innerHTML = filtered
+      .map(
+        (w) => `
+            <tr><td>${w.id}</td><td>${formatDate(w.date)}</td><td>${w.personName}</td><td style="color:var(--danger);font-weight:700;">${formatCurrency(w.amount)}</td><td>${w.reason || "-"}</td>
+            <td><button class="btn btn-danger btn-xs" onclick="deleteWithdrawal(${w.id})">🗑️</button></td></tr>
+        `,
+      )
+      .join("");
+  }
+  window.openWithdrawalModal = function () {
+    const html = `
+        <div class="modal-overlay" id="withModal">
+            <div class="modal"><div class="modal-header"><h3>💸 تسجيل سحب من الخزينة</h3><button class="modal-close" onclick="closeModal('withModal')">✕</button></div>
+            <div class="modal-body">
+                <div class="form-group"><label>اسم الشخص *</label><input id="withPerson" placeholder="اسم الشخص الذي قام بالسحب"></div>
+                <div class="form-row"><div class="form-group"><label>المبلغ *</label><input type="number" id="withAmount" step="0.01"></div>
+                <div class="form-group"><label>التاريخ</label><input type="date" id="withDate"></div></div>
+                <div class="form-group"><label>السبب</label><textarea id="withReason" rows="2" placeholder="سبب السحب..."></textarea></div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal('withModal')">إلغاء</button>
+            <button class="btn btn-danger" onclick="saveWithdrawal()">💾 تسجيل السحب</button></div></div></div>`;
+    document.getElementById("modalContainer").innerHTML = html;
+    document.getElementById("withDate").value = new Date()
+      .toISOString()
+      .split("T")[0];
+  };
+  window.saveWithdrawal = function () {
+    const personName = document.getElementById("withPerson")?.value.trim();
+    const amount =
+      parseFloat(document.getElementById("withAmount")?.value) || 0;
+    const date = document.getElementById("withDate")?.value;
+    const reason = document.getElementById("withReason")?.value.trim() || "";
+    if (!personName || amount <= 0) {
+      showToast("الرجاء إدخال الاسم والمبلغ", "error");
+      return;
+    }
+    db.withdrawals.push({
+      id: generateId("withdrawal"),
+      personName,
+      amount,
+      date: new Date(date).toISOString(),
+      reason,
+      createdAt: new Date().toISOString(),
+    });
+    saveDB(db);
+    closeModal("withModal");
+    renderWithdrawals();
+    renderDashboard();
+    showToast("تم تسجيل السحب 💸");
+  };
+  window.deleteWithdrawal = function (id) {
+    if (!confirm("حذف هذا السحب؟")) return;
+    db.withdrawals = db.withdrawals.filter((w) => w.id !== id);
+    saveDB(db);
+    renderWithdrawals();
+    renderDashboard();
+    showToast("تم الحذف");
+  };
+
+  // ============ التقارير ============
   function renderReports() {
-    const totalDebtsCust = db.customers.reduce(
+    const totalCustDebts = db.customers.reduce(
       (s, c) => s + Math.max(0, c.balance || 0),
       0,
     );
-    const totalDebtsSupp = db.suppliers.reduce(
+    const totalSuppDebts = db.suppliers.reduce(
       (s, sup) => s + Math.max(0, sup.balance || 0),
       0,
     );
@@ -1217,50 +1494,106 @@
       (s, i) => s + i.quantity * i.purchasePrice,
       0,
     );
-    const inventorySell = db.inventory.reduce(
-      (s, i) => s + i.quantity * i.sellingPrice,
-      0,
-    );
+    const lowStock = db.inventory.filter(
+      (i) => i.quantity <= (i.minAlert || 5),
+    ).length;
+    const totalWithdrawals = db.withdrawals.reduce((s, w) => s + w.amount, 0);
+
     document.getElementById("reportStats").innerHTML = `
-            <div class="stat-card"><div class="stat-icon red">💸</div><div class="stat-info"><h3>ديون العملاء</h3><div class="value">${formatCurrency(totalDebtsCust)}</div></div></div>
-            <div class="stat-card"><div class="stat-icon orange">🏦</div><div class="stat-info"><h3>ديون للموردين</h3><div class="value">${formatCurrency(totalDebtsSupp)}</div></div></div>
+            <div class="stat-card"><div class="stat-icon red">💸</div><div class="stat-info"><h3>ديون العملاء</h3><div class="value">${formatCurrency(totalCustDebts)}</div></div></div>
+            <div class="stat-card"><div class="stat-icon orange">🏦</div><div class="stat-info"><h3>ديون للموردين</h3><div class="value">${formatCurrency(totalSuppDebts)}</div></div></div>
             <div class="stat-card"><div class="stat-icon blue">📦</div><div class="stat-info"><h3>قيمة المخزون (شراء)</h3><div class="value">${formatCurrency(inventoryCost)}</div></div></div>
-            <div class="stat-card"><div class="stat-icon green">💰</div><div class="stat-info"><h3>قيمة المخزون (بيع)</h3><div class="value">${formatCurrency(inventorySell)}</div></div></div>
+            <div class="stat-card"><div class="stat-icon orange">⚠️</div><div class="stat-info"><h3>مخزون منخفض</h3><div class="value">${lowStock}</div></div></div>
         `;
     document.getElementById("inventoryCostValue").innerHTML =
-      `إجمالي قيمة البضاعة بسعر الشراء: <strong>${formatCurrency(inventoryCost)}</strong>`;
+      `<div style="display:flex;justify-content:space-between;"><span>📦 قيمة المخزون بسعر الشراء:</span><span style="font-size:24px;color:var(--primary);">${formatCurrency(inventoryCost)}</span></div>`;
+    document.getElementById("totalWithdrawals").innerHTML =
+      `<div style="display:flex;justify-content:space-between;"><span>💸 إجمالي السحوبات:</span><span style="font-size:24px;color:var(--danger);">${formatCurrency(totalWithdrawals)}</span></div>`;
 
     // الأرباح الشهرية
     const monthly = {};
     db.sales.forEach((s) => {
       const d = new Date(s.date);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      if (!monthly[key]) monthly[key] = { sales: 0, cost: 0, count: 0 };
+      if (!monthly[key])
+        monthly[key] = { sales: 0, cost: 0, count: 0, returns: 0 };
       monthly[key].sales += s.total;
       monthly[key].cost += (s.purchasePriceAtSale || 0) * s.quantity;
       monthly[key].count++;
     });
-    // مرتجعات المبيعات تخصم من الأرباح؟ سنتجاهل لتبسيط
-    const rows = Object.entries(monthly).sort((a, b) =>
+    db.salesReturns.forEach((r) => {
+      const d = new Date(r.date);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      if (!monthly[key])
+        monthly[key] = { sales: 0, cost: 0, count: 0, returns: 0 };
+      const sale = db.sales.find((s) => s.id === r.saleId);
+      if (sale) {
+        monthly[key].returns += r.quantity * sale.unitPrice;
+        monthly[key].cost -= (sale.purchasePriceAtSale || 0) * r.quantity;
+      }
+    });
+    const months = Object.entries(monthly).sort((a, b) =>
       b[0].localeCompare(a[0]),
     );
     const tbody = document.getElementById("monthlyProfitBody");
-    if (rows.length === 0)
+    if (months.length === 0)
       tbody.innerHTML = '<tr><td colspan="5">لا توجد بيانات</td></tr>';
     else
-      tbody.innerHTML = rows
-        .map(
-          ([month, data]) => `
-            <tr><td>${month}</td><td>${data.count}</td><td>${formatCurrency(data.sales)}</td><td>${formatCurrency(data.cost)}</td>
-            <td><strong>${formatCurrency(data.sales - data.cost)}</strong></td></tr>
-        `,
-        )
+      tbody.innerHTML = months
+        .map(([m, d]) => {
+          const net = d.sales - d.returns;
+          const profit = net - d.cost;
+          return `<tr><td>${m}</td><td>${d.count}</td><td>${formatCurrency(net)}</td><td>${formatCurrency(d.cost)}</td><td style="color:${profit >= 0 ? "var(--success)" : "var(--danger)"};font-weight:700;">${formatCurrency(profit)}</td></tr>`;
+        })
         .join("");
   }
 
-  // ========== تهيئة البيانات التجريبية ==========
+  // ============ دوال عامة ============
+  window.closeModal = function (overlayId) {
+    const overlay = document.getElementById(overlayId);
+    if (overlay) overlay.remove();
+    document.getElementById("modalContainer").innerHTML = "";
+  };
+  document
+    .getElementById("modalContainer")
+    .addEventListener("click", function (e) {
+      if (e.target.classList.contains("modal-overlay")) e.target.remove();
+    });
+
+  // ============ تصدير/استيراد ============
+  window.exportData = function () {
+    const data = localStorage.getItem(STORAGE_KEY);
+    if (!data) {
+      showToast("لا توجد بيانات", "error");
+      return;
+    }
+    const blob = new Blob([data], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    showToast("تم التصدير ✅");
+  };
+  window.importData = function (event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function (e) {
+      try {
+        JSON.parse(e.target.result);
+        localStorage.setItem(STORAGE_KEY, e.target.result);
+        showToast("تم الاستيراد ✅");
+        setTimeout(() => location.reload(), 1500);
+      } catch (err) {
+        showToast("ملف غير صالح", "error");
+      }
+    };
+    reader.readAsText(file);
+    event.target.value = "";
+  };
+
+  // ============ بيانات تجريبية ============
   function seedDemoData() {
-    // إضافة عملاء وموردين وقطع... مع الحفاظ على الهيكل
     if (db.customers.length === 0) {
       db.customers.push({
         id: generateId("customer"),
@@ -1285,13 +1618,6 @@
         address: "القاهرة",
         balance: 0,
       });
-      db.suppliers.push({
-        id: generateId("supplier"),
-        name: "مستورد السيارات",
-        phone: "03333333",
-        address: "الإسكندرية",
-        balance: 0,
-      });
     }
     if (db.inventory.length === 0) {
       db.inventory.push({
@@ -1302,7 +1628,6 @@
         quantity: 25,
         minAlert: 5,
         purchasePrice: 50,
-        sellingPrice: 85,
         supplier: "",
         image: "",
       });
@@ -1314,7 +1639,6 @@
         quantity: 8,
         minAlert: 3,
         purchasePrice: 1800,
-        sellingPrice: 2200,
         supplier: "",
         image: "",
       });
@@ -1323,14 +1647,19 @@
   }
 
   function init() {
-    if (!db.nextIds) db.nextIds = {};
+    if (!db.withdrawals) db.withdrawals = [];
     if (!db.suppliers) db.suppliers = [];
     if (!db.purchases) db.purchases = [];
     if (!db.supplierPayments) db.supplierPayments = [];
     if (!db.salesReturns) db.salesReturns = [];
     if (!db.purchaseReturns) db.purchaseReturns = [];
-    seedDemoData();
-    renderDashboard();
+    if (!db.nextIds) db.nextIds = {};
+    db.customers.forEach((c) => updateCustomerBalance(c.id));
+    db.suppliers.forEach((s) => updateSupplierBalance(s.id));
+    saveDB(db);
+    if (db.customers.length === 0 && db.inventory.length === 0) seedDemoData();
+    navigateTo('withdrawals');
+    console.log("✅ النظام جاهز");
   }
   init();
 })();

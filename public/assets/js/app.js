@@ -1,6 +1,8 @@
 window.formatCurrency = function (amount, symbol = 'ل.س') {
     if (amount === null || amount === undefined) return '0 ' + symbol;
-    return parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' ' + symbol;
+    const n = parseFloat(amount);
+    const hasFraction = n % 1 !== 0;
+    return n.toLocaleString('en-US', { minimumFractionDigits: hasFraction ? 2 : 0, maximumFractionDigits: 2 }) + ' ' + symbol;
 };
 
 window.formatDate = function (dateStr) {
@@ -10,12 +12,6 @@ window.formatDate = function (dateStr) {
     return d.toLocaleDateString('ar-EG', { year: 'numeric', month: 'short', day: 'numeric' });
 };
 
-<<<<<<< HEAD
-window.formatTime = function (dateStr) {
-    if (!dateStr) return '-';
-    const d = new Date(dateStr);
-    if (isNaN(d)) return '-';
-=======
 window.formatDateTime = function (dateStr) {
     if (!dateStr) return '-';
     const d = new Date(dateStr);
@@ -26,8 +22,7 @@ window.formatDateTime = function (dateStr) {
 window.formatTime = function (dateStr) {
     if (!dateStr) return '-';
     const d = new Date(dateStr);
-    if (isNaN(d)) return dateStr;
->>>>>>> 092fd02fa1e4004e138d6f4f84e824e290f61d74
+    if (isNaN(d)) return '-';
     return d.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
 };
 
@@ -100,6 +95,9 @@ window.apiFetch = async function (url, options = {}) {
         try { err = JSON.parse(text); } catch (e) {}
         // استخراج رسائل Laravel validation
         let msg = typeof err === 'string' ? err : (err.message || 'حدث خطأ');
+        if (typeof err === 'string' && err.trim().startsWith('<')) {
+            msg = 'حدث خطأ في الخادم (HTTP ' + response.status + ')';
+        }
         if (err && err.errors) {
             const firstErrors = Object.values(err.errors).flat();
             if (firstErrors.length > 0) msg = firstErrors.join(' | ');
@@ -211,3 +209,83 @@ loadInventoryNotifications();
         });
     }
 })();
+
+window.initSearchableSelect = function (inputId, options, onSelect) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'searchable-select';
+    wrapper.style.position = 'relative';
+    input.parentNode.insertBefore(wrapper, input);
+    wrapper.appendChild(input);
+
+    const dropdown = document.createElement('div');
+    dropdown.className = 'dropdown-list';
+    wrapper.appendChild(dropdown);
+
+    let selectedValue = null;
+    let selectedText = '';
+
+    function filterOptions(search) {
+        const s = (search || '').toLowerCase();
+        return options.filter(opt =>
+            opt.text.toLowerCase().includes(s) ||
+            opt.value.toLowerCase().includes(s)
+        );
+    }
+
+    function renderDropdown(items) {
+        if (items.length === 0) {
+            dropdown.innerHTML = '<div class="dropdown-item" style="color:#999;">لا توجد نتائج</div>';
+        } else {
+            dropdown.innerHTML = items
+                .map(opt => `<div class="dropdown-item" data-value="${opt.value}" data-text="${opt.text}">${opt.text}</div>`)
+                .join('');
+        }
+        dropdown.classList.add('active');
+    }
+
+    input.addEventListener('focus', () => {
+        renderDropdown(filterOptions(input.value));
+    });
+
+    input.addEventListener('input', () => {
+        selectedValue = null;
+        selectedText = '';
+        renderDropdown(filterOptions(input.value));
+    });
+
+    dropdown.addEventListener('click', (e) => {
+        const item = e.target.closest('.dropdown-item');
+        if (item && item.dataset.value) {
+            selectedValue = item.dataset.value;
+            selectedText = item.dataset.text;
+            input.value = selectedText;
+            dropdown.classList.remove('active');
+            if (onSelect) onSelect(selectedValue, selectedText);
+        }
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!wrapper.contains(e.target)) {
+            dropdown.classList.remove('active');
+        }
+    });
+
+    return {
+        getValue: () => selectedValue,
+        getText: () => selectedText,
+        setValue: (val, text) => {
+            selectedValue = val;
+            selectedText = text;
+            input.value = text;
+            if (onSelect) onSelect(val, text);
+        },
+        clear: () => {
+            selectedValue = null;
+            selectedText = '';
+            input.value = '';
+        },
+    };
+};

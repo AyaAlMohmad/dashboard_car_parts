@@ -3,16 +3,20 @@
         const data = await apiFetch('/dashboard');
 
         const s = data.stats;
-        document.getElementById('dashboardStats').innerHTML = `
+        const topRow = `
+            <div class="stat-card"><div class="stat-icon red">�</div><div class="stat-info"><h3>ديون العملاء</h3><div class="value">${formatCurrency(s.debts_syp || 0, 'ل.س')} | ${formatCurrency(s.debts_usd || 0, '$')}</div></div></div>
+            <div class="stat-card"><div class="stat-icon orange">📦</div><div class="stat-info"><h3>القطع</h3><div class="value">${s.parts_count}</div><small>الكمية: ${s.parts_quantity}</small></div></div>
+            <div class="stat-card"><div class="stat-icon orange">🏭</div><div class="stat-info"><h3>الموردين</h3><div class="value">${s.suppliers_count}</div></div></div>
             <div class="stat-card"><div class="stat-icon blue">👥</div><div class="stat-info"><h3>العملاء</h3><div class="value">${s.customers_count}</div></div></div>
-            <div class="stat-card"><div class="stat-icon blue">🏭</div><div class="stat-info"><h3>الموردين</h3><div class="value">${s.suppliers_count}</div></div></div>
-            <div class="stat-card"><div class="stat-icon blue">📦</div><div class="stat-info"><h3>القطع</h3><div class="value">${s.parts_count}</div><small>الكمية: ${s.parts_low_stock} منخفض</small></div></div>
-            <div class="stat-card"><div class="stat-icon red">💸</div><div class="stat-info"><h3>إجمالي المبيعات</h3><div class="value">${formatCurrency(s.sales_total)}</div></div></div>
-            <div class="stat-card"><div class="stat-icon green">✅</div><div class="stat-info"><h3>المدفوع</h3><div class="value">${formatCurrency(s.sales_paid)}</div></div></div>
-            <div class="stat-card"><div class="stat-icon orange">⚠️</div><div class="stat-info"><h3>الديون المتبقية</h3><div class="value">${formatCurrency(s.debts)}</div></div></div>
-            <div class="stat-card"><div class="stat-icon red">📥</div><div class="stat-info"><h3>إجمالي المشتريات</h3><div class="value">${formatCurrency(s.purchases_total)}</div></div></div>
-            <div class="stat-card"><div class="stat-icon orange">⚠️</div><div class="stat-info"><h3>ديون الموردين</h3><div class="value">${formatCurrency(s.supplier_debts)}</div></div></div>
-            <div class="stat-card"><div class="stat-icon orange">⚠️</div><div class="stat-info"><h3>قطع منخفضة</h3><div class="value">${s.parts_low_stock}</div></div></div>
+        `;
+        const bottomRow = `
+            <div class="stat-card"><div class="stat-icon orange">�</div><div class="stat-info"><h3>إجمالي السحوبات</h3><div class="value">${formatCurrency(s.total_withdrawals_syp || 0, 'ل.س')} | ${formatCurrency(s.total_withdrawals_usd || 0, '$')}</div></div></div>
+            <div class="stat-card"><div class="stat-icon red">💰</div><div class="stat-info"><h3>ديون للموردين</h3><div class="value">${formatCurrency(s.supplier_debts_syp || 0, 'ل.س')} | ${formatCurrency(s.supplier_debts_usd || 0, '$')}</div></div></div>
+            <div class="stat-card"><div class="stat-icon green">📈</div><div class="stat-info"><h3>ربح المستودع</h3><div class="value">${formatCurrency(s.warehouse_profit_syp || 0, 'ل.س')} | ${formatCurrency(s.warehouse_profit_usd || 0, '$')}</div></div></div>
+        `;
+        document.getElementById('dashboardStats').innerHTML = `
+            <div class="stats-grid" style="margin-bottom:16px;">${topRow}</div>
+            <div class="stats-grid stats-grid--center">${bottomRow}</div>
         `;
 
         const recent = data.recent_sales || [];

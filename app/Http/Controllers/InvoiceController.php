@@ -72,7 +72,14 @@ class InvoiceController extends Controller
                 ];
             }
 
-            $paid = $validated['paid'] ?? 0;
+            $cashPaid = $validated['paid'] ?? 0;
+
+            $customer = Customer::lockForUpdate()->find($validated['customer_id']);
+            $availableCredit = max(0, (float) $customer->balance);
+            $amountAfterCash = max(0, $total - $cashPaid);
+            $creditUsed = min($amountAfterCash, $availableCredit);
+
+            $paid = $cashPaid + $creditUsed;
             $remaining = $total - $paid;
 
             // Generate invoice number
@@ -83,6 +90,7 @@ class InvoiceController extends Controller
                 'invoice_number' => $invoiceNumber,
                 'total' => $total,
                 'paid' => $paid,
+                'credit_used' => $creditUsed,
                 'remaining' => $remaining,
                 'status' => $remaining > 0 ? 'عليه دين' : 'مسدد',
                 'currency' => $currency,
@@ -103,9 +111,8 @@ class InvoiceController extends Controller
                 $itemData['part']->decrement('quantity', $itemData['quantity']);
             }
 
-            // Update customer balance
-            $customer = Customer::find($validated['customer_id']);
-            $customer->balance -= $remaining;
+            // Update customer balance: reduce by non-cash portion (credit used + remaining debt)
+            $customer->balance -= ($total - $cashPaid);
             $customer->status = $customer->balance < 0 ? 'مدين' : 'متوان';
             $customer->save();
 
@@ -116,6 +123,63 @@ class InvoiceController extends Controller
     public function show(Invoice $invoice): JsonResponse
     {
         return response()->json($invoice->load(['customer', 'items.part']));
+    }
+
+    public function returnItems(Request $request, Invoice $invoice): JsonResponse
+    {
+        $validated = $request->validate([
+            'items' => ['required', 'array', 'min:1'],
+            'items.*.invoice_item_id' => ['required', 'exists:invoice_items,id'],
+            'items.*.quantity' => ['required', 'integer', 'min:1'],
+            'reason' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        return DB::transaction(function () use ($validated, $invoice) {
+            $returnTotal = 0;
+
+            foreach ($validated['items'] as $returnItem) {
+                $item = InvoiceItem::where('id', $returnItem['invoice_item_id'])
+                    ->where('invoice_id', $invoice->id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                $returnQty = $returnItem['quantity'];
+                $maxReturn = $item->quantity - $item->returned_quantity;
+
+                if ($returnQty > $maxReturn) {
+                    return response()->json([
+                        'message' => 'كمية الترجيع تتجاوز الكمية المتاحة لقطعة: ' . ($item->part?->name ?? '؟'),
+                    ], 422);
+                }
+
+                $amount = $returnQty * $item->unit_price;
+                $returnTotal += $amount;
+
+                $item->returned_quantity += $returnQty;
+                $item->save();
+
+                $part = Part::lockForUpdate()->find($item->part_id);
+                if ($part) {
+                    $part->quantity += $returnQty;
+                    $part->save();
+                }
+            }
+
+            $invoice->total = max(0, $invoice->total - $returnTotal);
+            $invoice->remaining = max(0, $invoice->total - $invoice->paid);
+            $invoice->status = $invoice->remaining > 0 ? 'عليه دين' : 'مسدد';
+            $invoice->return_reason = $validated['reason'] ?? null;
+            $invoice->save();
+
+            $customer = Customer::lockForUpdate()->find($invoice->customer_id);
+            if ($customer) {
+                $customer->balance += $returnTotal;
+                $customer->status = $customer->balance < 0 ? 'مدين' : 'متوان';
+                $customer->save();
+            }
+
+            return response()->json($invoice->load(['customer', 'items.part']), 201);
+        });
     }
 
     public function destroy(Invoice $invoice): JsonResponse
@@ -129,10 +193,10 @@ class InvoiceController extends Controller
                 }
             }
 
-            // Return balance to customer
+            // Return balance to customer (restore credit used + any unpaid remaining)
             $customer = Customer::find($invoice->customer_id);
             if ($customer) {
-                $customer->balance += $invoice->remaining;
+                $customer->balance += $invoice->remaining + $invoice->credit_used;
                 $customer->status = $customer->balance < 0 ? 'مدين' : 'متوان';
                 $customer->save();
             }

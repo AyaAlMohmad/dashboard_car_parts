@@ -11,11 +11,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('settings', function (Blueprint $table) {
-            $table->id();
-            $table->string('key')->unique();
-            $table->text('value')->nullable();
-            $table->timestamps();
+        Schema::table('payments', function (Blueprint $table) {
+            $table->enum('currency', ['SYP', 'USD'])->default('SYP')->after('amount');
         });
     }
 
@@ -24,6 +21,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('settings');
+        Schema::table('payments', function (Blueprint $table) {
+            $table->dropColumn('currency');
+        });
     }
 };
