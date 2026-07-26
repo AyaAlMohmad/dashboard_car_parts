@@ -28,6 +28,8 @@ class BackupSchedule extends Model
         'interval_minutes' => 'integer',
     ];
 
+    protected $appends = ['interval'];
+
     public function intervalInMinutes(): int
     {
         return ($this->interval_days * 24 * 60)
