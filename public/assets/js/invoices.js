@@ -4,6 +4,7 @@ let allParts = [];
 let exchangeRate = 1;
 let invoiceItems = [];
 let selectedCurrency = 'SYP';
+let _cachedInvoiceState = null;
 
 async function loadInvoices() {
     try {
@@ -101,7 +102,7 @@ window.openInvoiceModal = function () {
                 <div class="modal-header"><h3>🧾 فاتورة جديدة</h3><button class="modal-close" onclick="closeModal('invoiceModal')">✕</button></div>
                 <div class="modal-body">
                     <div class="form-row">
-                        <div class="form-group"><label>العميل *</label><input id="invCustomerInput" placeholder="اكتب اسم العميل..."><input type="hidden" id="invCustomer"></div>
+                        <div class="form-group"><label>العميل * <button type="button" class="btn btn-success btn-xs" onclick="addCustomerInline()" style="margin-right:6px;height:38px;" title="إضافة عميل">➕</button></label><input id="invCustomerInput" placeholder="اكتب اسم العميل..."><input type="hidden" id="invCustomer"></div>
                         <div class="form-group"><label>التاريخ *</label><input type="date" id="invDate" value="${today}"></div>
                     </div>
                     <div class="form-row">
@@ -158,6 +159,86 @@ window.openInvoiceModal = function () {
     );
 };
 
+function cacheInvoiceModalState() {
+    _cachedInvoiceState = {
+        customerId: document.getElementById('invCustomer')?.value || '',
+        customerText: document.getElementById('invCustomerInput')?.value || '',
+        date: document.getElementById('invDate')?.value || '',
+        currency: document.getElementById('invCurrency')?.value || 'SYP',
+        notes: document.getElementById('invNotes')?.value || '',
+        paid: document.getElementById('invPaid')?.value || '0',
+        items: [...invoiceItems],
+    };
+}
+
+function restoreInvoiceModalState() {
+    if (!_cachedInvoiceState) return;
+    const s = _cachedInvoiceState;
+    const invCustomer = document.getElementById('invCustomer');
+    const invInput = document.getElementById('invCustomerInput');
+    if (invCustomer) invCustomer.value = s.customerId;
+    if (invInput) invInput.value = s.customerText;
+    const invDate = document.getElementById('invDate');
+    if (invDate) invDate.value = s.date;
+    const invCurrency = document.getElementById('invCurrency');
+    if (invCurrency) invCurrency.value = s.currency;
+    selectedCurrency = s.currency;
+    const invNotes = document.getElementById('invNotes');
+    if (invNotes) invNotes.value = s.notes;
+    const invPaid = document.getElementById('invPaid');
+    if (invPaid) invPaid.value = s.paid;
+    invoiceItems = [...s.items];
+    renderInvoiceItems();
+    updateInvoiceRemaining();
+}
+
+window.addCustomerInline = function () {
+    cacheInvoiceModalState();
+    const html = `
+        <div class="modal-overlay" id="inlineCustModalInv">
+            <div class="modal">
+                <div class="modal-header"><h3>➕ إضافة عميل</h3><button class="modal-close" onclick="closeInlineCustomerInv()">✕</button></div>
+                <div class="modal-body">
+                    <div class="form-group"><label>الاسم *</label><input id="inlineCustNameInv"></div>
+                    <div class="form-row"><div class="form-group"><label>الهاتف</label><input id="inlineCustPhoneInv"></div>
+                    <div class="form-group"><label>العنوان</label><input id="inlineCustAddressInv"></div></div>
+                </div>
+                <div class="modal-footer"><button class="btn btn-outline" onclick="closeInlineCustomerInv()">إلغاء</button>
+                <button class="btn btn-primary" onclick="saveInlineCustomerInv()">💾 حفظ</button></div>
+            </div>
+        </div>`;
+    document.getElementById('modalContainer').insertAdjacentHTML('beforeend', html);
+};
+
+window.closeInlineCustomerInv = function () {
+    document.getElementById('inlineCustModalInv')?.remove();
+    openInvoiceModal();
+    restoreInvoiceModalState();
+};
+
+window.saveInlineCustomerInv = async function () {
+    const name = document.getElementById('inlineCustNameInv')?.value.trim();
+    if (!name) { showToast('الاسم مطلوب', 'error'); return; }
+    const phone = document.getElementById('inlineCustPhoneInv')?.value.trim() || '';
+    const address = document.getElementById('inlineCustAddressInv')?.value.trim() || '';
+    try {
+        const res = await apiFetch('/customers', { method: 'POST', body: JSON.stringify({ name, phone, address }) });
+        showToast('تم إضافة العميل ✅');
+        allCustomers.push(res);
+        const newId = res.id;
+        document.getElementById('inlineCustModalInv')?.remove();
+        openInvoiceModal();
+        restoreInvoiceModalState();
+        const invCustomer = document.getElementById('invCustomer');
+        const invInput = document.getElementById('invCustomerInput');
+        if (invCustomer) invCustomer.value = String(newId);
+        if (invInput) invInput.value = res.name + (phone ? ' - ' + phone : '');
+    } catch (e) {
+        showToast('حدث خطأ أثناء الحفظ', 'error');
+        console.error(e);
+    }
+};
+
 
 function searchParts() {
     const q = document.getElementById('partSearchInput')?.value.toLowerCase() || '';
@@ -177,7 +258,7 @@ function searchParts() {
         results.innerHTML = matches.map(p => {
             return `<div style="padding:10px;cursor:pointer;border-bottom:1px solid var(--border);" onclick="selectInvoicePart(${p.id}, '${p.name.replace(/'/g, "\\'")}')">
                 <strong>${p.name}</strong> <small style="color:var(--text-light);">(${p.part_number || 'بدون رقم'})</small>
-                <div style="font-size:12px;color:var(--text-light);">متاح: ${p.quantity} — السعر: ${formatNumber(p.purchase_price || 0)} ل.س / ${formatNumber(p.purchase_price_usd || 0)} $</div>
+                <div style="font-size:12px;color:var(--text-light);">متاح: ${p.quantity} — السعر: ${formatNumber(p.sale_price || 0)} ل.س / ${formatNumber(p.sale_price_usd || 0)} $</div>
             </div>`;
         }).join('');
     }
@@ -190,7 +271,7 @@ function selectInvoicePart(id, name) {
     document.getElementById('partSearchResults').style.display = 'none';
 
     const part = allParts.find(p => p.id == id);
-    const price = selectedCurrency === 'USD' ? (part?.purchase_price_usd || 0) : (part?.purchase_price || 0);
+    const price = selectedCurrency === 'USD' ? (part?.sale_price_usd || 0) : (part?.sale_price || 0);
     document.getElementById('addPrice').value = price || '';
 }
 
