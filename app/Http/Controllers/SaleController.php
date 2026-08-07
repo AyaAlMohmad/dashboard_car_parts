@@ -50,6 +50,13 @@ class SaleController extends Controller
 
             $total = $part->sale_price * $validated['quantity'];
             $paid = $validated['paid'] ?? 0;
+
+            if ($paid > $total) {
+                return response()->json([
+                    'message' => 'المبلغ المدفوع أكبر من إجمالي الفاتورة.',
+                ], 422);
+            }
+
             $remaining = $total - $paid;
 
             $sale = Sale::create([
@@ -68,7 +75,7 @@ class SaleController extends Controller
             // تحديث رصيد العميل
             $customer = Customer::find($validated['customer_id']);
             $customer->balance -= $remaining;
-            $customer->status = $customer->balance < 0 ? 'مدين' : 'متوان';
+            $customer->status = $customer->balance < 0 ? 'مدين' : ($customer->balance > 0 ? 'دائن' : 'متوان');
             $customer->save();
 
             // تسجيل الدفعة في جدول التسديدات إذا كان هناك مبلغ مدفوع
@@ -101,7 +108,7 @@ class SaleController extends Controller
             // إرجاع الرصيد الكلي للعميل (المدفوع + المتبقي) لأن التسديد المرتبط سيُحذف تلقائياً
             $customer = Customer::find($sale->customer_id);
             $customer->balance += $sale->total;
-            $customer->status = $customer->balance < 0 ? 'مدين' : 'متوان';
+            $customer->status = $customer->balance < 0 ? 'مدين' : ($customer->balance > 0 ? 'دائن' : 'متوان');
             $customer->save();
 
             $sale->delete();

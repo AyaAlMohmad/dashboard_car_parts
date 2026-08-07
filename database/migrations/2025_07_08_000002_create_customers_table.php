@@ -14,7 +14,7 @@ return new class extends Migration
             $table->string('phone');
             $table->string('address')->nullable();
             $table->decimal('balance', 12, 2)->default(0); // موجب = له، سالب = عليه
-            $table->enum('status', ['متوان', 'مدين'])->default('متوان');
+            $table->enum('status', ['متوان', 'مدين', 'دائن'])->default('متوان');
             $table->timestamps();
         });
     }

@@ -7,16 +7,14 @@ let selectedCurrency = 'SYP';
 
 async function loadInvoices() {
     try {
-        const [invData, custData, partsData, settings] = await Promise.all([
+        const [invData, custData, partsData] = await Promise.all([
             apiFetch('/invoices'),
             apiFetch('/customers'),
             apiFetch('/parts'),
-            apiFetch('/invoices/settings/exchange-rate').catch(() => ({ exchange_rate: 1 }))
         ]);
         allInvoices = invData.data || [];
         allCustomers = custData.data || [];
         allParts = partsData.data || [];
-        exchangeRate = settings.exchange_rate || 1;
         renderInvoices();
     } catch (e) {
         showToast('حدث خطأ أثناء تحميل البيانات', 'error');
@@ -24,39 +22,64 @@ async function loadInvoices() {
     }
 }
 
+function groupKey(inv) {
+    return `${inv.sale_date}_${inv.id}`;
+}
+
+function groupInvoices() {
+    const map = {};
+    allInvoices.forEach((inv) => {
+        const key = groupKey(inv);
+        if (!map[key]) {
+            map[key] = { items: [], total: 0, paid: 0, remaining: 0, over: 0, debt: 0, first: inv, status: 'مسدد' };
+        }
+        const total = parseFloat(inv.total || 0);
+        const remaining = parseFloat(inv.remaining || 0);
+        const cashApplied = parseFloat((total - remaining).toFixed(2));
+        const over = parseFloat((Math.max(0, (inv.paid || 0) - total)).toFixed(2));
+        map[key].items.push(inv);
+        map[key].total += total;
+        map[key].paid += cashApplied;
+        map[key].remaining += remaining;
+        map[key].over += over;
+        if (remaining > 0) map[key].status = 'عليه دين';
+    });
+    return Object.values(map);
+}
+
 function renderInvoices() {
     const search = (document.getElementById('invoiceSearch')?.value || '').toLowerCase();
-    let filtered = allInvoices.filter((inv) => {
-        const cname = (inv.customer?.name || '').toLowerCase();
-        const items = inv.items || [];
-        const itemNames = items.map(i => (i.part?.name || '').toLowerCase()).join(' ');
-        return cname.includes(search) || itemNames.includes(search) || inv.invoice_number.toLowerCase().includes(search);
+    const groups = groupInvoices();
+    let filtered = groups.filter((g) => {
+        const cname = (g.first.customer?.name || '').toLowerCase();
+        const itemNames = g.items.flatMap(inv => (inv.items || []).map(i => (i.part?.name || '').toLowerCase())).join(' ');
+        return cname.includes(search) || itemNames.includes(search) || String(g.first.id).includes(search);
     });
     const tbody = document.getElementById('invoicesTableBody');
     if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10"><div class="empty-state">🧾 لا توجد فواتير</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12"><div class="empty-state">🧾 لا توجد فواتير</div></td></tr>';
         return;
     }
-    tbody.innerHTML = filtered.map((inv) => {
-        const items = inv.items || [];
-        const itemSummary = items.length > 1
-            ? `${items.length} قطع`
-            : (items[0]?.part?.name || '؟');
-        const currSymbol = inv.currency === 'USD' ? '$' : 'ل.س';
+    tbody.innerHTML = filtered.map((g) => {
+        const curr = g.first.currency === 'USD' ? '$' : 'ل.س';
+        const totalParts = g.items.reduce((sum, inv) => sum + (inv.items || []).length, 0);
+        const countText = totalParts > 1 ? `${totalParts} قطع` : 'قطعة';
         return `<tr>
-            <td style="cursor:pointer;color:var(--primary);font-weight:600;" onclick="viewInvoice(${inv.id})">${inv.invoice_number}</td>
-            <td>${formatDate(inv.sale_date)}</td>
-            <td>${formatTime(inv.created_at)}</td>
-            <td>${inv.customer?.name || '؟'}</td>
-            <td>${itemSummary}</td>
-            <td>${currSymbol} ${formatNumber(inv.total)}</td>
-            <td>${currSymbol} ${formatNumber(inv.paid)}</td>
-            <td>${currSymbol} ${formatNumber(inv.remaining)}</td>
-            <td>${renderBadge(inv.status)}</td>
+            <td>${g.first.id}</td>
+            <td>${formatDate(g.first.sale_date)}</td>
+            <td>${formatTime(g.first.created_at)}</td>
+            <td>${g.first.customer?.name || '؟'}</td>
+            <td>${countText}</td>
+            <td>${formatCurrency(g.total, curr)}</td>
+            <td>${formatCurrency(g.paid + g.debt + g.over, curr)}</td>
+            <td>${formatCurrency(g.remaining, curr)}</td>
+            <td>${formatCurrency(g.debt, curr)}</td>
+            <td>${formatCurrency(g.over, curr)}</td>
+            <td>${renderBadge(g.status)}</td>
             <td>
-                <button class="btn btn-outline btn-xs" onclick="viewInvoice(${inv.id})">👁️ عرض</button>
-                <button class="btn btn-warning btn-xs" onclick="openReturnInvoiceModal(${inv.id})">مرتجع ↩️</button>
-                <button class="btn btn-danger btn-xs" onclick="deleteInvoice(${inv.id})">🗑️</button>
+                <button class="btn btn-outline btn-xs" onclick="viewInvoice(${g.first.id})">عرض</button>
+                <button class="btn btn-warning btn-xs" onclick="openReturnInvoiceModal(${g.first.id})">مرتجع ↩️</button>
+                <button class="btn btn-danger btn-xs" onclick="deleteInvoice(${g.first.id})">حذف</button>
             </td>
         </tr>`;
     }).join('');
@@ -83,7 +106,7 @@ window.openInvoiceModal = function () {
                     </div>
                     <div class="form-row">
                         <div class="form-group"><label>العملة</label>
-                            <select id="invCurrency" onchange="selectedCurrency = this.value">
+                            <select id="invCurrency" onchange="selectedCurrency = this.value; refreshSelectedInvoicePartPrice();">
                                 <option value="SYP">ليرة سورية (SYP)</option>
                                 <option value="USD">دولار (USD)</option>
                             </select>
@@ -118,6 +141,8 @@ window.openInvoiceModal = function () {
 
                     <div class="form-group" style="margin-top:12px;"><label>المبلغ المدفوع</label><input type="number" id="invPaid" value="0" step="0.01" oninput="updateInvoiceRemaining()"></div>
                     <div class="form-group"><label>المتبقي</label><input id="invRemaining" readonly style="background:#fef3c7;font-weight:700;color:var(--danger);"></div>
+                    <div class="form-group"><label>الدين المخصوم</label><input id="invDebt" readonly style="background:#fee2e2;font-weight:700;color:var(--danger);"></div>
+                    <div class="form-group"><label>مبلغ الزيادة</label><input id="invOver" readonly style="background:#d1fae5;font-weight:700;color:var(--success);"></div>
                 </div>
                 <div class="modal-footer">
                     <button class="btn btn-outline" onclick="closeModal('invoiceModal')">إلغاء</button>
@@ -150,21 +175,31 @@ function searchParts() {
         results.innerHTML = '<div style="padding:10px;color:var(--text-light);">لا توجد نتائج</div>';
     } else {
         results.innerHTML = matches.map(p => {
-            const price = selectedCurrency === 'USD' && p.sale_price_usd ? p.sale_price_usd : p.sale_price;
-            return `<div style="padding:10px;cursor:pointer;border-bottom:1px solid var(--border);" onclick="selectPart(${p.id}, '${p.name.replace(/'/g, "\\'")}', ${price})">
+            return `<div style="padding:10px;cursor:pointer;border-bottom:1px solid var(--border);" onclick="selectInvoicePart(${p.id}, '${p.name.replace(/'/g, "\\'")}')">
                 <strong>${p.name}</strong> <small style="color:var(--text-light);">(${p.part_number || 'بدون رقم'})</small>
-                <div style="font-size:12px;color:var(--text-light);">متاح: ${p.quantity} — السعر: ${formatNumber(price)}</div>
+                <div style="font-size:12px;color:var(--text-light);">متاح: ${p.quantity} — السعر: ${formatNumber(p.purchase_price || 0)} ل.س / ${formatNumber(p.purchase_price_usd || 0)} $</div>
             </div>`;
         }).join('');
     }
     results.style.display = 'block';
 }
 
-function selectPart(id, name, price) {
+function selectInvoicePart(id, name) {
     document.getElementById('partSearchInput').value = name;
     document.getElementById('partSearchInput').dataset.partId = id;
-    document.getElementById('addPrice').value = price;
     document.getElementById('partSearchResults').style.display = 'none';
+
+    const part = allParts.find(p => p.id == id);
+    const price = selectedCurrency === 'USD' ? (part?.purchase_price_usd || 0) : (part?.purchase_price || 0);
+    document.getElementById('addPrice').value = price || '';
+}
+
+function refreshSelectedInvoicePartPrice() {
+    const id = document.getElementById('partSearchInput')?.dataset?.partId;
+    const name = document.getElementById('partSearchInput')?.value;
+    if (id && name) {
+        selectInvoicePart(id, name);
+    }
 }
 
 function addItemToInvoice() {
@@ -215,8 +250,14 @@ function renderInvoiceItems() {
 function updateInvoiceRemaining() {
     const total = invoiceItems.reduce((sum, it) => sum + it.total, 0);
     const paid = parseFloat(document.getElementById('invPaid')?.value) || 0;
+    const remaining = Math.max(0, total - paid);
+    const over = Math.max(0, paid - total);
     const rem = document.getElementById('invRemaining');
-    if (rem) rem.value = formatNumber(Math.max(0, total - paid));
+    const debtEl = document.getElementById('invDebt');
+    const overEl = document.getElementById('invOver');
+    if (rem) rem.value = formatNumber(remaining);
+    if (debtEl) debtEl.value = formatNumber(0);
+    if (overEl) overEl.value = formatNumber(over);
 }
 
 function removeItem(idx) {
@@ -258,29 +299,35 @@ window.saveInvoice = async function () {
 };
 
 window.viewInvoice = function (id) {
-    const inv = allInvoices.find(i => i.id === id);
-    if (!inv) return;
-    const items = inv.items || [];
-    const currSymbol = inv.currency === 'USD' ? '$' : 'ل.س';
-    const itemsHtml = items.length
-        ? items.map(it => `<tr><td>${it.part?.name || '؟'}</td><td>${it.quantity}</td><td>${currSymbol} ${formatNumber(it.unit_price)}</td><td>${currSymbol} ${formatNumber(it.total)}</td></tr>`).join('')
-        : '<tr><td colspan="4" style="text-align:center;">لا توجد قطع</td></tr>';
+    const target = allInvoices.find(i => i.id == id);
+    if (!target) return;
+    const key = groupKey(target);
+    const invoices = allInvoices.filter(i => groupKey(i) === key);
+    const curr = target.currency === 'USD' ? '$' : 'ل.س';
+    const total = invoices.reduce((s, i) => s + parseFloat(i.total || 0), 0);
+    const remaining = invoices.reduce((s, i) => s + parseFloat(i.remaining || 0), 0);
+    const credit = invoices.reduce((s, i) => s + parseFloat(i.credit_used || 0), 0);
+    const debt = invoices.reduce((s, i) => s + parseFloat(i.debt || 0), 0);
+    const over = invoices.reduce((s, i) => s + Math.max(0, parseFloat(i.paid || 0) + parseFloat(i.credit_used || 0) - parseFloat(i.debt || 0) - parseFloat(i.total || 0)), 0);
+    const paid = total - remaining + over;
+    const itemsHtml = invoices.flatMap(inv => inv.items || []).map(it => `<tr><td>${it.part?.name || '؟'}</td><td>${it.quantity}</td><td>${formatCurrency(it.unit_price, curr)}</td><td>${formatCurrency(it.total, curr)}</td></tr>`).join('');
+    const first = invoices[0];
 
-    showModal('🧾 تفاصيل الفاتورة ' + inv.invoice_number, `
+    showModal('🧾 تفاصيل الفاتورة #' + first.id, `
         <div style="margin-bottom:12px;">
-            <div><strong>العميل:</strong> ${inv.customer?.name || '؟'}</div>
-            <div><strong>التاريخ:</strong> ${formatDate(inv.sale_date)}</div>
-            <div><strong>العملة:</strong> ${inv.currency}</div>
-            <div><strong>الملاحظات:</strong> ${inv.notes || 'لا يوجد'}</div>
+            <div><strong>العميل:</strong> ${first.customer?.name || '؟'}</div>
+            <div><strong>التاريخ:</strong> ${formatDate(first.sale_date)}</div>
+            <div><strong>العملة:</strong> ${first.currency}</div>
+            <div><strong>الملاحظات:</strong> ${first.notes || 'لا يوجد'}</div>
         </div>
         <table style="width:100%;font-size:13px;">
             <thead><tr><th>القطعة</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th></tr></thead>
-            <tbody>${itemsHtml}</tbody>
+            <tbody>${itemsHtml || '<tr><td colspan="4" style="text-align:center;">لا توجد قطع</td></tr>'}</tbody>
         </table>
         <div style="margin-top:12px;text-align:left;font-weight:bold;">
-            <div>الإجمالي: ${currSymbol} ${formatNumber(inv.total)}</div>
-            <div>المدفوع: ${currSymbol} ${formatNumber(inv.paid)}</div>
-            <div>المتبقي: ${currSymbol} ${formatNumber(inv.remaining)}</div>
+            <div>الإجمالي: ${formatCurrency(total, curr)}</div>
+            <div>المدفوع: ${formatCurrency(paid, curr)}</div>
+            <div>المتبقي: ${formatCurrency(remaining, curr)}</div>
         </div>
     `);
 };

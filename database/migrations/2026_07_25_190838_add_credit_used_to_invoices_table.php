@@ -21,8 +21,10 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('invoices', function (Blueprint $table) {
-            $table->dropColumn('credit_used');
-        });
+        if (Schema::hasColumn('invoices', 'credit_used')) {
+            Schema::table('invoices', function (Blueprint $table) {
+                $table->dropColumn('credit_used');
+            });
+        }
     }
 };

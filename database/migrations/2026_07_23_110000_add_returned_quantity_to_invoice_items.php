@@ -15,8 +15,10 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::table('invoice_items', function (Blueprint $table) {
-            $table->dropColumn('returned_quantity');
-        });
+        if (Schema::hasColumn('invoice_items', 'returned_quantity')) {
+            Schema::table('invoice_items', function (Blueprint $table) {
+                $table->dropColumn('returned_quantity');
+            });
+        }
     }
 };

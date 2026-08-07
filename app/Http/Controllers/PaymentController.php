@@ -36,17 +36,25 @@ class PaymentController extends Controller
         ]);
 
         return DB::transaction(function () use ($validated) {
-            $validated['currency'] = $validated['currency'] ?? 'SYP';
+            $currency = $validated['currency'] = $validated['currency'] ?? 'SYP';
             $payment = Payment::create($validated);
 
-            // تحديث رصيد العميل
+            $amount = $validated['amount'];
+
+            // تحديث رصيد العميل حسب العملة
             $customer = Customer::find($validated['customer_id']);
-            $customer->balance += $validated['amount'];
-            $customer->status = $customer->balance < 0 ? 'مدين' : 'متوان';
+            if ($currency === 'USD') {
+                $customer->balance_usd = round($customer->balance_usd + $amount, 2);
+            } else {
+                $customer->balance_syp = round($customer->balance_syp + $amount, 2);
+            }
+            $customer->status = $customer->balance_syp < 0 || $customer->balance_usd < 0
+                ? 'مدين'
+                : ($customer->balance_syp > 0 || $customer->balance_usd > 0 ? 'دائن' : 'متوان');
             $customer->save();
 
-            // تحديث حالة المبيعات المفتوحة بالدفعة الجديدة
-            $this->updateCustomerSalesStatus($customer, $validated['amount']);
+            // تحديث حالة الفواتير المفتوحة بالدفعة الجديدة
+            $this->updateCustomerInvoicesStatus($customer, $currency, $amount);
 
             return response()->json($payment->load('customer'), 201);
         });
@@ -62,12 +70,18 @@ class PaymentController extends Controller
         return DB::transaction(function () use ($payment) {
             // إرجاع الرصيد
             $customer = Customer::find($payment->customer_id);
-            $customer->balance -= $payment->amount;
-            $customer->status = $customer->balance < 0 ? 'مدين' : 'متوان';
+            if ($payment->currency === 'USD') {
+                $customer->balance_usd = round($customer->balance_usd - $payment->amount, 2);
+            } else {
+                $customer->balance_syp = round($customer->balance_syp - $payment->amount, 2);
+            }
+            $customer->status = $customer->balance_syp < 0 || $customer->balance_usd < 0
+                ? 'مدين'
+                : ($customer->balance_syp > 0 || $customer->balance_usd > 0 ? 'دائن' : 'متوان');
             $customer->save();
 
-            // إعادة حساب توزيع المدفوعات على المبيعات
-            $this->updateCustomerSalesStatus($customer);
+            // إعادة حساب توزيع المدفوعات على الفواتير
+            $this->updateCustomerInvoicesStatus($customer, $payment->currency);
 
             $payment->delete();
 
@@ -75,43 +89,85 @@ class PaymentController extends Controller
         });
     }
 
-    private function updateCustomerSalesStatus(Customer $customer, ?float $amount = null): void
+    private function updateCustomerInvoicesStatus(Customer $customer, ?string $currency = null, ?float $amount = null): void
     {
-        // إذا لم يُمرر amount، نعيد الحساب من الصفر
-        if ($amount === null) {
-            $customer->sales()->update([
-                'status' => 'عليه دين',
-                'paid' => 0,
-                'remaining' => DB::raw('`total`'),
+        // إعادة الحساب من الصفر لهذه العملة
+        $customer->invoices()
+            ->where('currency', $currency)
+            ->update([
+                'remaining' => DB::raw('GREATEST(0, `total` - `paid`)'),
+                'status' => DB::raw('CASE WHEN `paid` >= `total` THEN "مسدد" ELSE "عليه دين" END'),
             ]);
-            $amount = $customer->payments()->sum('amount');
+
+        if ($currency === 'SYP') {
+            $customer->sales()
+                ->update([
+                    'remaining' => DB::raw('GREATEST(0, `total` - `paid`)'),
+                    'status' => DB::raw('CASE WHEN `paid` >= `total` THEN "مسدد" ELSE "عليه دين" END'),
+                ]);
         }
 
-        $sales = $customer->sales()
+        // عند الحذف نجمع كل دفعات هذه العملة ونعيد التوزيع
+        if ($amount === null) {
+            $amount = round($customer->payments()->where('currency', $currency)->get()->sum(fn ($p) => (float) $p->amount), 2);
+        }
+
+        $available = round($amount, 2);
+
+        // تغطية الفواتير المفتوحة بهذه العملة
+        $invoices = $customer->invoices()
+            ->where('currency', $currency)
             ->where('status', 'عليه دين')
             ->orderBy('sale_date')
             ->get();
 
-        $available = $amount;
-
-        foreach ($sales as $sale) {
+        foreach ($invoices as $invoice) {
             if ($available <= 0) {
                 break;
             }
 
-            if ($available >= $sale->remaining) {
-                $available -= $sale->remaining;
-                $sale->update([
-                    'paid' => $sale->total,
+            $needed = round((float) $invoice->remaining, 2);
+
+            if ($available >= $needed) {
+                $available = round($available - $needed, 2);
+                $invoice->update([
                     'remaining' => 0,
                     'status' => 'مسدد',
                 ]);
             } else {
-                $sale->update([
-                    'paid' => $sale->paid + $available,
-                    'remaining' => $sale->remaining - $available,
+                $invoice->update([
+                    'remaining' => round((float) $invoice->remaining - $available, 2),
                 ]);
                 $available = 0;
+            }
+        }
+
+        // تغطية المبيعات المفتوحة بما تبقى من المبلغ (سوري فقط)
+        if ($currency === 'SYP' && $available > 0) {
+            $sales = $customer->sales()
+                ->where('status', 'عليه دين')
+                ->orderBy('sale_date')
+                ->get();
+
+            foreach ($sales as $sale) {
+                if ($available <= 0) {
+                    break;
+                }
+
+                $needed = round((float) $sale->remaining, 2);
+
+                if ($available >= $needed) {
+                    $available = round($available - $needed, 2);
+                    $sale->update([
+                        'remaining' => 0,
+                        'status' => 'مسدد',
+                    ]);
+                } else {
+                    $sale->update([
+                        'remaining' => round((float) $sale->remaining - $available, 2),
+                    ]);
+                    $available = 0;
+                }
             }
         }
     }

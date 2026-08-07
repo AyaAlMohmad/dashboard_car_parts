@@ -110,12 +110,14 @@ window.apiFetch = async function (url, options = {}) {
 
 window.renderBadge = function (status) {
     if (status === 'مدين') return '<span class="badge badge-danger">مدين</span>';
+    if (status === 'دائن') return '<span class="badge badge-success">دائن</span>';
     if (status === 'متوان') return '<span class="badge badge-info">متوان</span>';
     if (status === 'متوفر') return '<span class="badge badge-success">متوفر</span>';
     if (status === 'منخفض') return '<span class="badge badge-warning">منخفض</span>';
     if (status === 'غير متوفر') return '<span class="badge badge-danger">غير متوفر</span>';
     if (status === 'مسدد') return '<span class="badge badge-success">مسدد</span>';
     if (status === 'عليه دين') return '<span class="badge badge-danger">عليه دين</span>';
+    if (status === 'علينا دين') return '<span class="badge badge-danger">علينا دين</span>';
     return '<span class="badge badge-info">' + status + '</span>';
 };
 

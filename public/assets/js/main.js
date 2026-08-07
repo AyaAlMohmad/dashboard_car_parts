@@ -47,9 +47,10 @@
     return id;
   }
 
-  function formatCurrency(amount) {
+  function formatCurrency(amount, currency) {
     const num = parseFloat(amount || 0);
-    return num.toLocaleString("ar-EG") + " ل.س";
+    const symbol = (currency === '$' || String(currency || '').toUpperCase() === 'USD') ? ' $' : ' ل.س';
+    return num.toLocaleString("ar-EG") + symbol;
   }
 
   function formatDate(dateStr) {

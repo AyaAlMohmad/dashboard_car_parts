@@ -9,15 +9,15 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('invoices', function (Blueprint $table) {
-            $table->text('return_reason')->nullable()->after('notes');
+            $table->decimal('debt', 12, 2)->default(0)->after('credit_used');
         });
     }
 
     public function down(): void
     {
-        if (Schema::hasColumn('invoices', 'return_reason')) {
+        if (Schema::hasColumn('invoices', 'debt')) {
             Schema::table('invoices', function (Blueprint $table) {
-                $table->dropColumn('return_reason');
+                $table->dropColumn('debt');
             });
         }
     }

@@ -32,15 +32,19 @@ class SupplierPaymentController extends Controller
         ]);
 
         return DB::transaction(function () use ($validated) {
-            $validated['currency'] = $validated['currency'] ?? 'SYP';
+            $currency = $validated['currency'] = $validated['currency'] ?? 'SYP';
             $payment = SupplierPayment::create($validated);
 
             $supplier = Supplier::find($validated['supplier_id']);
-            $supplier->balance -= $validated['amount'];
-            $supplier->status = $supplier->balance > 0 ? 'علينا' : ($supplier->balance < 0 ? 'لنا' : 'متوازن');
+            if ($currency === 'USD') {
+                $supplier->balance_usd -= $validated['amount'];
+            } else {
+                $supplier->balance_syp -= $validated['amount'];
+            }
+            $supplier->status = $supplier->balance_syp > 0 || $supplier->balance_usd > 0
+                ? 'علينا'
+                : ($supplier->balance_syp < 0 || $supplier->balance_usd < 0 ? 'لنا' : 'متوازن');
             $supplier->save();
-
-            $this->updateSupplierPurchasesStatus($supplier, $validated['amount']);
 
             return response()->json($payment->load('supplier'), 201);
         });
@@ -55,53 +59,18 @@ class SupplierPaymentController extends Controller
     {
         return DB::transaction(function () use ($supplierPayment) {
             $supplier = Supplier::find($supplierPayment->supplier_id);
-            $supplier->balance += $supplierPayment->amount;
-            $supplier->status = $supplier->balance > 0 ? 'علينا' : ($supplier->balance < 0 ? 'لنا' : 'متوازن');
+            if ($supplierPayment->currency === 'USD') {
+                $supplier->balance_usd += $supplierPayment->amount;
+            } else {
+                $supplier->balance_syp += $supplierPayment->amount;
+            }
+            $supplier->status = $supplier->balance_syp > 0 || $supplier->balance_usd > 0
+                ? 'علينا'
+                : ($supplier->balance_syp < 0 || $supplier->balance_usd < 0 ? 'لنا' : 'متوازن');
             $supplier->save();
-
-            // إعادة حساب توزيع المدفوعات على المشتريات
-            $this->updateSupplierPurchasesStatus($supplier);
 
             $supplierPayment->delete();
             return response()->json(['message' => 'Deleted successfully']);
         });
-    }
-
-    private function updateSupplierPurchasesStatus(Supplier $supplier, ?float $amount = null): void
-    {
-        // إذا لم يُمرر amount، نعيد الحساب من الصفر
-        if ($amount === null) {
-            $supplier->purchases()->update([
-                'status' => 'علينا دين',
-                'paid' => 0,
-                'remaining' => DB::raw('`total`'),
-            ]);
-            $amount = $supplier->supplierPayments()->sum('amount');
-        }
-
-        $purchases = $supplier->purchases()
-            ->where('status', 'علينا دين')
-            ->orderBy('purchase_date')
-            ->get();
-
-        $available = $amount;
-
-        foreach ($purchases as $purchase) {
-            if ($available <= 0) break;
-            if ($available >= $purchase->remaining) {
-                $available -= $purchase->remaining;
-                $purchase->update([
-                    'paid' => $purchase->total,
-                    'remaining' => 0,
-                    'status' => 'مسدد',
-                ]);
-            } else {
-                $purchase->update([
-                    'paid' => $purchase->paid + $available,
-                    'remaining' => $purchase->remaining - $available,
-                ]);
-                $available = 0;
-            }
-        }
     }
 }

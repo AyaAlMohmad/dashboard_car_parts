@@ -30,6 +30,8 @@ class DashboardController extends Controller
             ->get()
             ->mapWithKeys(fn ($row) => [$row->currency => (float) $row->sales - (float) $row->cost]);
 
+        $oldDebtPartId = Part::where('part_number', 'OLD_DEBT')->value('id') ?? 0;
+
         $stats = [
             'customers_count' => Customer::count(),
             'suppliers_count' => Supplier::count(),
@@ -42,10 +44,10 @@ class DashboardController extends Controller
             'sales_paid_usd' => (float) Invoice::where('currency', 'USD')->sum('paid'),
             'debts_syp' => (float) Invoice::where('status', 'عليه دين')->where('currency', 'SYP')->sum('remaining'),
             'debts_usd' => (float) Invoice::where('status', 'عليه دين')->where('currency', 'USD')->sum('remaining'),
-            'purchases_total_syp' => (float) Purchase::where('currency', 'SYP')->sum('total'),
-            'purchases_total_usd' => (float) Purchase::where('currency', 'USD')->sum('total'),
-            'supplier_debts_syp' => (float) Purchase::where('status', 'علينا دين')->where('currency', 'SYP')->sum('remaining'),
-            'supplier_debts_usd' => (float) Purchase::where('status', 'علينا دين')->where('currency', 'USD')->sum('remaining'),
+            'purchases_total_syp' => (float) Purchase::where('currency', 'SYP')->where('part_id', '!=', $oldDebtPartId)->sum('total'),
+            'purchases_total_usd' => (float) Purchase::where('currency', 'USD')->where('part_id', '!=', $oldDebtPartId)->sum('total'),
+            'supplier_debts_syp' => (float) Purchase::where('status', 'علينا دين')->where('currency', 'SYP')->where('part_id', '!=', $oldDebtPartId)->sum('remaining'),
+            'supplier_debts_usd' => (float) Purchase::where('status', 'علينا دين')->where('currency', 'USD')->where('part_id', '!=', $oldDebtPartId)->sum('remaining'),
             'total_withdrawals_syp' => (float) Withdrawal::where('currency', 'SYP')->sum('amount'),
             'total_withdrawals_usd' => (float) Withdrawal::where('currency', 'USD')->sum('amount'),
             'warehouse_profit_syp' => $profitByCurrency['SYP'] ?? 0,

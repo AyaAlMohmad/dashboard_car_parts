@@ -6,7 +6,6 @@ use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Part;
-use App\Models\Setting;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -47,7 +46,7 @@ class InvoiceController extends Controller
 
         return DB::transaction(function () use ($validated) {
             $currency = $validated['currency'] ?? 'SYP';
-            $exchangeRate = $validated['exchange_rate'] ?? Setting::get('exchange_rate', 1);
+            $exchangeRate = 1.0;
 
             // Validate stock and calculate totals
             $itemsData = [];
@@ -72,15 +71,15 @@ class InvoiceController extends Controller
                 ];
             }
 
-            $cashPaid = $validated['paid'] ?? 0;
+            $total = round($total, 2);
+            $cashPaid = round($validated['paid'] ?? 0, 2);
 
             $customer = Customer::lockForUpdate()->find($validated['customer_id']);
-            $availableCredit = max(0, (float) $customer->balance);
-            $amountAfterCash = max(0, $total - $cashPaid);
-            $creditUsed = min($amountAfterCash, $availableCredit);
 
-            $paid = $cashPaid + $creditUsed;
-            $remaining = $total - $paid;
+            $paid = $cashPaid;
+            $remaining = round(max(0, $total - $cashPaid), 2);
+            $creditUsed = 0;
+            $debtPaid = 0;
 
             // Generate invoice number
             $invoiceNumber = 'INV-' . now()->format('Ymd') . '-' . str_pad(Invoice::count() + 1, 4, '0', STR_PAD_LEFT);
@@ -90,7 +89,8 @@ class InvoiceController extends Controller
                 'invoice_number' => $invoiceNumber,
                 'total' => $total,
                 'paid' => $paid,
-                'credit_used' => $creditUsed,
+                'credit_used' => 0,
+                'debt' => 0,
                 'remaining' => $remaining,
                 'status' => $remaining > 0 ? 'عليه دين' : 'مسدد',
                 'currency' => $currency,
@@ -111,9 +111,15 @@ class InvoiceController extends Controller
                 $itemData['part']->decrement('quantity', $itemData['quantity']);
             }
 
-            // Update customer balance: reduce by non-cash portion (credit used + remaining debt)
-            $customer->balance -= ($total - $cashPaid);
-            $customer->status = $customer->balance < 0 ? 'مدين' : 'متوان';
+            // Update customer balance by currency
+            if ($currency === 'USD') {
+                $customer->balance_usd = round($customer->balance_usd + $cashPaid - $total, 2);
+            } else {
+                $customer->balance_syp = round($customer->balance_syp + $cashPaid - $total, 2);
+            }
+            $customer->status = $customer->balance_syp < 0 || $customer->balance_usd < 0
+                ? 'مدين'
+                : ($customer->balance_syp > 0 || $customer->balance_usd > 0 ? 'دائن' : 'متوان');
             $customer->save();
 
             return response()->json($invoice->load(['customer', 'items.part']), 201);
@@ -165,16 +171,22 @@ class InvoiceController extends Controller
                 }
             }
 
-            $invoice->total = max(0, $invoice->total - $returnTotal);
-            $invoice->remaining = max(0, $invoice->total - $invoice->paid);
+            $invoice->total = round(max(0, $invoice->total - $returnTotal), 2);
+            $invoice->remaining = round(max(0, $invoice->total - $invoice->paid - $invoice->credit_used), 2);
             $invoice->status = $invoice->remaining > 0 ? 'عليه دين' : 'مسدد';
             $invoice->return_reason = $validated['reason'] ?? null;
             $invoice->save();
 
             $customer = Customer::lockForUpdate()->find($invoice->customer_id);
             if ($customer) {
-                $customer->balance += $returnTotal;
-                $customer->status = $customer->balance < 0 ? 'مدين' : 'متوان';
+                if ($invoice->currency === 'USD') {
+                    $customer->balance_usd += ($returnTotal * 1.0);
+                } else {
+                    $customer->balance_syp += ($returnTotal * 1.0);
+                }
+                $customer->status = $customer->balance_syp < 0 || $customer->balance_usd < 0
+                    ? 'مدين'
+                    : ($customer->balance_syp > 0 || $customer->balance_usd > 0 ? 'دائن' : 'متوان');
                 $customer->save();
             }
 
@@ -185,19 +197,26 @@ class InvoiceController extends Controller
     public function destroy(Invoice $invoice): JsonResponse
     {
         return DB::transaction(function () use ($invoice) {
-            // Return quantities to stock
+            // Return quantities to stock (excluding already returned items)
             foreach ($invoice->items as $item) {
                 $part = Part::find($item->part_id);
                 if ($part) {
-                    $part->increment('quantity', $item->quantity);
+                    $part->increment('quantity', $item->quantity - ($item->returned_quantity ?? 0));
                 }
             }
 
-            // Return balance to customer (restore credit used + any unpaid remaining)
+            // Return balance to customer (reverse the invoice net effect)
             $customer = Customer::find($invoice->customer_id);
             if ($customer) {
-                $customer->balance += $invoice->remaining + $invoice->credit_used;
-                $customer->status = $customer->balance < 0 ? 'مدين' : 'متوان';
+                $remaining = $invoice->total - $invoice->paid;
+                if ($invoice->currency === 'USD') {
+                    $customer->balance_usd += $remaining;
+                } else {
+                    $customer->balance_syp += $remaining;
+                }
+                $customer->status = $customer->balance_syp < 0 || $customer->balance_usd < 0
+                    ? 'مدين'
+                    : ($customer->balance_syp > 0 || $customer->balance_usd > 0 ? 'دائن' : 'متوان');
                 $customer->save();
             }
 
@@ -211,18 +230,12 @@ class InvoiceController extends Controller
     public function settings(): JsonResponse
     {
         return response()->json([
-            'exchange_rate' => Setting::get('exchange_rate', 1),
+            'exchange_rate' => 1,
         ]);
     }
 
     public function updateSettings(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'exchange_rate' => ['required', 'numeric', 'min:0.01'],
-        ]);
-
-        Setting::set('exchange_rate', $validated['exchange_rate']);
-
-        return response()->json(['message' => 'Settings updated']);
+        return response()->json(['message' => 'Exchange rate updates disabled']);
     }
 }

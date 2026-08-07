@@ -31,19 +31,23 @@ class ReportsController extends Controller
             ->get()
             ->mapWithKeys(fn ($row) => [$row->currency => (float) $row->sales - (float) $row->cost]);
 
+        $oldDebtPartId = Part::where('part_number', 'OLD_DEBT')->value('id') ?? 0;
+
         $stats = [
             'low_stock_parts' => Part::whereIn('status', ['منخفض', 'غير متوفر'])->count(),
             'inventory_value' => (float) Part::selectRaw('SUM(quantity * purchase_price) as total')->value('total'),
+            'inventory_value_syp' => (float) Part::selectRaw('SUM(quantity * purchase_price) as total')->value('total'),
+            'inventory_value_usd' => (float) Part::selectRaw('SUM(quantity * purchase_price_usd) as total')->value('total'),
             'payments_count' => Payment::count(),
             'sales_count' => Invoice::count(),
             'suppliers_count' => Supplier::count(),
             'purchases_count' => Purchase::count(),
             'total_debts_syp' => (float) Invoice::where('status', 'عليه دين')->where('currency', 'SYP')->sum('remaining'),
             'total_debts_usd' => (float) Invoice::where('status', 'عليه دين')->where('currency', 'USD')->sum('remaining'),
-            'total_purchases_syp' => (float) Purchase::where('currency', 'SYP')->sum('total'),
-            'total_purchases_usd' => (float) Purchase::where('currency', 'USD')->sum('total'),
-            'supplier_debts_syp' => (float) Purchase::where('status', 'علينا دين')->where('currency', 'SYP')->sum('remaining'),
-            'supplier_debts_usd' => (float) Purchase::where('status', 'علينا دين')->where('currency', 'USD')->sum('remaining'),
+            'total_purchases_syp' => (float) Purchase::where('currency', 'SYP')->where('part_id', '!=', $oldDebtPartId)->sum('total'),
+            'total_purchases_usd' => (float) Purchase::where('currency', 'USD')->where('part_id', '!=', $oldDebtPartId)->sum('total'),
+            'supplier_debts_syp' => (float) Purchase::where('status', 'علينا دين')->where('currency', 'SYP')->where('part_id', '!=', $oldDebtPartId)->sum('remaining'),
+            'supplier_debts_usd' => (float) Purchase::where('status', 'علينا دين')->where('currency', 'USD')->where('part_id', '!=', $oldDebtPartId)->sum('remaining'),
             'total_withdrawals_syp' => (float) Withdrawal::where('currency', 'SYP')->sum('amount'),
             'total_withdrawals_usd' => (float) Withdrawal::where('currency', 'USD')->sum('amount'),
             'warehouse_profit_syp' => $profitByCurrency['SYP'] ?? 0,
@@ -56,7 +60,10 @@ class ReportsController extends Controller
     public function debtors(): JsonResponse
     {
         $customers = Customer::where('status', 'مدين')
-            ->withSum('invoices as total_debt', 'remaining')
+            ->select('customers.*',
+                DB::raw('(SELECT SUM(remaining) FROM invoices WHERE invoices.customer_id = customers.id AND invoices.currency = "SYP") as total_debt_syp'),
+                DB::raw('(SELECT SUM(remaining) FROM invoices WHERE invoices.customer_id = customers.id AND invoices.currency = "USD") as total_debt_usd'),
+                DB::raw('(SELECT SUM(remaining) FROM invoices WHERE invoices.customer_id = customers.id) as total_debt'))
             ->latest()
             ->get();
 
@@ -65,8 +72,13 @@ class ReportsController extends Controller
 
     public function creditors(): JsonResponse
     {
+        $oldDebtPartId = (int) (Part::where('part_number', 'OLD_DEBT')->value('id') ?? 0);
+
         $suppliers = Supplier::where('status', 'علينا')
-            ->withSum('purchases as total_debt', 'remaining')
+            ->select('suppliers.*',
+                DB::raw('(SELECT SUM(remaining) FROM purchases WHERE purchases.supplier_id = suppliers.id AND purchases.currency = "SYP" AND purchases.part_id != ' . $oldDebtPartId . ') as total_debt_syp'),
+                DB::raw('(SELECT SUM(remaining) FROM purchases WHERE purchases.supplier_id = suppliers.id AND purchases.currency = "USD" AND purchases.part_id != ' . $oldDebtPartId . ') as total_debt_usd'),
+                DB::raw('(SELECT SUM(remaining) FROM purchases WHERE purchases.supplier_id = suppliers.id AND purchases.part_id != ' . $oldDebtPartId . ') as total_debt'))
             ->latest()
             ->get();
 
@@ -103,9 +115,13 @@ class ReportsController extends Controller
             'DATE_FORMAT(invoices.sale_date, "%Y-%m") as month,
             COUNT(DISTINCT invoices.id) as invoices,
             SUM(invoices.total) as total_sales,
+            SUM(CASE WHEN invoices.currency = "SYP" THEN invoices.total ELSE 0 END) as total_sales_syp,
+            SUM(CASE WHEN invoices.currency = "USD" THEN invoices.total ELSE 0 END) as total_sales_usd,
             SUM((invoice_items.quantity - COALESCE(invoice_items.returned_quantity, 0))
                 * CASE WHEN invoices.currency = "USD" THEN COALESCE(parts.purchase_price_usd, 0) ELSE parts.purchase_price END
-            ) as cost'
+            ) as cost,
+            SUM(CASE WHEN invoices.currency = "SYP" THEN (invoice_items.quantity - COALESCE(invoice_items.returned_quantity, 0)) * COALESCE(parts.purchase_price, 0) ELSE 0 END) as cost_syp,
+            SUM(CASE WHEN invoices.currency = "USD" THEN (invoice_items.quantity - COALESCE(invoice_items.returned_quantity, 0)) * COALESCE(parts.purchase_price_usd, 0) ELSE 0 END) as cost_usd'
         )
             ->join('invoice_items', 'invoices.id', '=', 'invoice_items.invoice_id')
             ->join('parts', 'invoice_items.part_id', '=', 'parts.id')
@@ -113,7 +129,15 @@ class ReportsController extends Controller
             ->orderBy('month', 'desc')
             ->get()
             ->map(function ($row) {
+                $row->total_sales = (float) $row->total_sales;
+                $row->total_sales_syp = (float) $row->total_sales_syp;
+                $row->total_sales_usd = (float) $row->total_sales_usd;
+                $row->cost = (float) $row->cost;
+                $row->cost_syp = (float) $row->cost_syp;
+                $row->cost_usd = (float) $row->cost_usd;
                 $row->net_profit = $row->total_sales - $row->cost;
+                $row->net_profit_syp = $row->total_sales_syp - $row->cost_syp;
+                $row->net_profit_usd = $row->total_sales_usd - $row->cost_usd;
                 return $row;
             });
 

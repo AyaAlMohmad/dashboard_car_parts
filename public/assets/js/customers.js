@@ -27,13 +27,15 @@ function renderCustomers() {
         const debtUsd = parseFloat(c.debt_usd || 0);
         const paidSyp = parseFloat(c.paid_syp || 0);
         const paidUsd = parseFloat(c.paid_usd || 0);
-        const balSyp = parseFloat(c.balance_syp || 0);
-        const balUsd = parseFloat(c.balance_usd || 0);
+        const overSyp = parseFloat(c.over_syp || 0);
+        const overUsd = parseFloat(c.over_usd || 0);
+        const balSyp = overSyp - debtSyp;
+        const balUsd = overUsd - debtUsd;
         let badge = '';
-        if (balSyp < 0) badge += `<span class="badge badge-danger">مدين ${formatCurrency(Math.abs(balSyp), 'ل.س')}</span> `;
         if (balSyp > 0) badge += `<span class="badge badge-success">دائن ${formatCurrency(balSyp, 'ل.س')}</span> `;
-        if (balUsd < 0) badge += `<span class="badge badge-danger">مدين ${formatCurrency(Math.abs(balUsd), '$')}</span> `;
+        if (balSyp < 0) badge += `<span class="badge badge-danger">مدين ${formatCurrency(Math.abs(balSyp), 'ل.س')}</span> `;
         if (balUsd > 0) badge += `<span class="badge badge-success">دائن ${formatCurrency(balUsd, '$')}</span> `;
+        if (balUsd < 0) badge += `<span class="badge badge-danger">مدين ${formatCurrency(Math.abs(balUsd), '$')}</span> `;
         if (!badge) badge = '<span class="badge badge-info">متوازن</span>';
         return `<tr>
             <td>${c.id}</td>

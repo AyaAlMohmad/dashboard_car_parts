@@ -91,6 +91,8 @@ function cachePartModalState(item) {
         alert: document.getElementById('partAlert')?.value || '',
         purchasePrice: document.getElementById('partPurchasePrice')?.value || '',
         purchasePriceUsd: document.getElementById('partPurchasePriceUsd')?.value || '',
+        salePrice: document.getElementById('partSalePrice')?.value || '',
+        salePriceUsd: document.getElementById('partSalePriceUsd')?.value || '',
         notes: document.getElementById('partNotes')?.value || '',
     };
 }
@@ -104,6 +106,8 @@ function restorePartModalState() {
     if (ov.alert !== undefined) document.getElementById('partAlert').value = ov.alert;
     if (ov.purchasePrice !== undefined) document.getElementById('partPurchasePrice').value = ov.purchasePrice;
     if (ov.purchasePriceUsd !== undefined) document.getElementById('partPurchasePriceUsd').value = ov.purchasePriceUsd;
+    if (ov.salePrice !== undefined) document.getElementById('partSalePrice').value = ov.salePrice;
+    if (ov.salePriceUsd !== undefined) document.getElementById('partSalePriceUsd').value = ov.salePriceUsd;
     if (ov.notes !== undefined) document.getElementById('partNotes').value = ov.notes;
     _partModalOverrides = {};
 }
@@ -137,6 +141,10 @@ window.openPartModal = function (item = null) {
                     <div class="form-row">
                         <div class="form-group"><label>سعر الشراء (ل.س)</label><input type="number" id="partPurchasePrice" value="${isEdit ? item.purchase_price || '' : ''}" step="0.01"></div>
                         <div class="form-group"><label>سعر الشراء ($)</label><input type="number" id="partPurchasePriceUsd" value="${isEdit ? item.purchase_price_usd || '' : ''}" step="0.01"></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>سعر البيع (ل.س)</label><input type="number" id="partSalePrice" value="${isEdit ? item.sale_price || '' : ''}" step="0.01"></div>
+                        <div class="form-group"><label>سعر البيع ($)</label><input type="number" id="partSalePriceUsd" value="${isEdit ? item.sale_price_usd || '' : ''}" step="0.01"></div>
                     </div>
                     <div class="form-group">
                         <label>ملاحظات</label>
@@ -181,12 +189,16 @@ window.savePart = async function (id) {
     const alert_threshold = parseInt(document.getElementById('partAlert')?.value) || 5;
     const purchase_price = parseFloat(document.getElementById('partPurchasePrice')?.value) || null;
     const purchase_price_usd = parseFloat(document.getElementById('partPurchasePriceUsd')?.value) || null;
+    const sale_price = parseFloat(document.getElementById('partSalePrice')?.value) || null;
+    const sale_price_usd = parseFloat(document.getElementById('partSalePriceUsd')?.value) || null;
     const notes = document.getElementById('partNotes')?.value || '';
     const image = _partImageBase64 || (_partModalItem ? _partModalItem.image || '' : '');
 
     const payload = { name, part_number, category_id, quantity, alert_threshold, notes, image };
     if (purchase_price !== null) payload.purchase_price = purchase_price;
     if (purchase_price_usd !== null) payload.purchase_price_usd = purchase_price_usd;
+    if (sale_price !== null) payload.sale_price = sale_price;
+    if (sale_price_usd !== null) payload.sale_price_usd = sale_price_usd;
     try {
         if (id) {
             await apiFetch('/parts/' + id, { method: 'PUT', body: JSON.stringify(payload) });

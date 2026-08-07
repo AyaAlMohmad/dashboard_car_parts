@@ -37,13 +37,29 @@ function groupPurchases() {
     allPurchases.forEach((p) => {
         const key = groupKey(p);
         if (!map[key]) {
-            map[key] = { items: [], total: 0, paid: 0, remaining: 0, first: p, status: 'مسدد' };
+            map[key] = { items: [], total: 0, paid: 0, remaining: 0, over: 0, debt: 0, first: p, status: 'مسدد' };
         }
+        const isOldDebt = p.part?.part_number === 'OLD_DEBT' || p.notes === 'دين قديم';
         map[key].items.push(p);
-        map[key].total += parseFloat(p.total);
-        map[key].paid += parseFloat(p.paid);
-        map[key].remaining += parseFloat(p.remaining);
+        if (!isOldDebt) {
+            map[key].total += parseFloat(p.total);
+            map[key].paid += parseFloat(p.paid);
+            map[key].remaining += parseFloat(p.remaining);
+        } else {
+            map[key].debt += parseFloat(p.paid);
+        }
         if (parseFloat(p.remaining) > 0) map[key].status = 'علينا دين';
+    });
+    Object.values(map).forEach((g) => {
+        const payments = g.first.supplier?.supplier_payments || g.first.supplier?.supplierPayments || [];
+        const purchaseIds = new Set(g.items.map((i) => String(i.id)));
+        g.over = payments
+            .filter((pay) => pay.notes === 'دفعة زائدة من فاتورة شراء' && pay.purchase_id && purchaseIds.has(String(pay.purchase_id)))
+            .reduce((sum, pay) => sum + parseFloat(pay.amount), 0);
+
+        g.debt = g.items
+            .filter((i) => i.part?.part_number === 'OLD_DEBT' || i.notes === 'دين قديم')
+            .reduce((sum, i) => sum + parseFloat(i.paid), 0);
     });
     return Object.values(map);
 }
@@ -58,7 +74,7 @@ function renderPurchases() {
     });
     const tbody = document.getElementById('purchasesTableBody');
     if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10"><div class="empty-state">📥 لا توجد مشتريات</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12"><div class="empty-state">📥 لا توجد مشتريات</div></td></tr>';
         return;
     }
     tbody.innerHTML = filtered.map((g) => {
@@ -71,8 +87,10 @@ function renderPurchases() {
             <td>${g.first.supplier?.name || '؟'}</td>
             <td>${countText}</td>
             <td>${formatCurrency(g.total, curr)}</td>
-            <td>${formatCurrency(g.paid, curr)}</td>
+            <td>${formatCurrency(g.paid + g.debt + g.over, curr)}</td>
             <td>${formatCurrency(g.remaining, curr)}</td>
+            <td>${formatCurrency(g.debt, curr)}</td>
+            <td>${formatCurrency(g.over, curr)}</td>
             <td>${renderBadge(g.status)}</td>
                         <td>
                 <button class="btn btn-outline btn-xs" onclick="viewPurchase(${g.first.id})">عرض</button>
@@ -156,7 +174,7 @@ window.openPurchaseModal = function (restoreState = false) {
                     </div>
                     <div class="form-row">
                         <div class="form-group"><label>العملة</label>
-                            <select id="purchaseCurrency">
+                            <select id="purchaseCurrency" onchange="refreshSelectedPartPrice()">
                                 <option value="SYP">ليرة سورية (SYP)</option>
                                 <option value="USD">دولار (USD)</option>
                             </select>
@@ -194,6 +212,7 @@ window.openPurchaseModal = function (restoreState = false) {
                     <div class="form-row" style="margin-top:12px;">
                         <div class="form-group"><label>المبلغ المدفوع</label><input type="number" id="purchasePaid" value="0" step="0.01" oninput="updatePurchaseRemaining()"></div>
                         <div class="form-group"><label>المتبقي</label><input id="purchaseRemaining" readonly style="background:#fef3c7;font-weight:700;color:var(--danger);"></div>
+                        <div class="form-group"><label>مبلغ الزيادة</label><input id="purchaseOver" readonly style="background:#d1fae5;font-weight:700;color:var(--success);"></div>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -229,20 +248,32 @@ function searchPurchaseParts() {
         results.innerHTML = '<div style="padding:10px;color:var(--text-light);">اضغط إضافة لإضافتها كقطعة جديدة</div>';
     } else {
         results.innerHTML = matches.map(p => {
-            return `<div style="padding:10px;cursor:pointer;border-bottom:1px solid var(--border);" onclick="selectPurchasePart(${p.id}, '${p.name.replace(/'/g, "\\'")}', ${p.purchase_price || 0})">
+            return `<div style="padding:10px;cursor:pointer;border-bottom:1px solid var(--border);" onclick="selectPurchasePart(${p.id}, '${p.name.replace(/'/g, "\\'")}')">
                 <strong>${p.name}</strong> <small style="color:var(--text-light);">(${p.part_number || 'بدون رقم'})</small>
-                <div style="font-size:12px;color:var(--text-light);">متاح: ${p.quantity} — سعر الشراء: ${formatNumber(p.purchase_price || 0)}</div>
+                <div style="font-size:12px;color:var(--text-light);">متاح: ${p.quantity} — سعر الشراء: ${formatNumber(p.purchase_price || 0)} ل.س / ${formatNumber(p.purchase_price_usd || 0)} $</div>
             </div>`;
         }).join('');
     }
     results.style.display = 'block';
 }
 
-function selectPurchasePart(id, name, price) {
+function selectPurchasePart(id, name) {
     document.getElementById('partSearchInput').value = name;
     document.getElementById('partSearchId').value = id;
-    document.getElementById('addPrice').value = price || '';
     document.getElementById('partSearchResults').style.display = 'none';
+
+    const part = allParts.find(p => p.id == id);
+    const currency = document.getElementById('purchaseCurrency')?.value || 'SYP';
+    const price = currency === 'USD' ? (part?.purchase_price_usd || 0) : (part?.purchase_price || 0);
+    document.getElementById('addPrice').value = price || '';
+}
+
+function refreshSelectedPartPrice() {
+    const id = document.getElementById('partSearchId')?.value;
+    const name = document.getElementById('partSearchInput')?.value;
+    if (id && name) {
+        selectPurchasePart(id, name);
+    }
 }
 
 function addItemToPurchase() {
@@ -299,7 +330,9 @@ function updatePurchaseRemaining() {
     const total = purchaseItems.reduce((sum, it) => sum + it.total, 0);
     const paid = parseFloat(document.getElementById('purchasePaid')?.value) || 0;
     const rem = document.getElementById('purchaseRemaining');
+    const over = document.getElementById('purchaseOver');
     if (rem) rem.value = formatNumber(Math.max(0, total - paid));
+    if (over) over.value = formatNumber(Math.max(0, paid - total));
 }
 
 function removePurchaseItem(idx) {
@@ -384,14 +417,8 @@ window.savePurchase = async function () {
 
 window.deletePurchase = async function (id) {
     if (!confirm('حذف هذه العملية؟')) return;
-    const target = allPurchases.find(p => p.id == id);
-    if (!target) return;
-    const key = groupKey(target);
-    const ids = allPurchases.filter(p => groupKey(p) === key).map(p => p.id);
     try {
-        for (const pid of ids) {
-            await apiFetch('/purchases/' + pid, { method: 'DELETE' });
-        }
+        await apiFetch('/purchases/' + id, { method: 'DELETE' });
         showToast('تم الحذف 🗑️');
         loadPurchases();
         if (typeof window.loadSuppliers === 'function') window.loadSuppliers();

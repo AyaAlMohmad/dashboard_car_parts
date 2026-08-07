@@ -6,6 +6,8 @@ use App\Models\Purchase;
 use App\Models\Part;
 use App\Models\Supplier;
 use App\Models\Category;
+use App\Models\SupplierPayment;
+use Illuminate\Support\Str;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -14,7 +16,7 @@ class PurchaseController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $query = Purchase::with(['supplier', 'part']);
+        $query = Purchase::with(['supplier.supplierPayments', 'part']);
         if ($search = $request->input('search')) {
             $query->whereHas('supplier', function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%");
@@ -40,26 +42,62 @@ class PurchaseController extends Controller
             'items.*.unit_price' => ['required', 'numeric', 'min:1'],
         ]);
 
-        return DB::transaction(function () use ($validated) {
+        $paidTotal = $validated['paid'] ?? 0;
+        $currency = $validated['currency'] ?? 'SYP';
+        $rate = 1.0;
+        $grandTotal = 0;
+        foreach ($validated['items'] as $item) {
+            $grandTotal += $item['unit_price'] * $item['quantity'];
+        }
+
+        return DB::transaction(function () use ($validated, $paidTotal, $grandTotal, $currency, $rate) {
             $supplier = Supplier::lockForUpdate()->findOrFail($validated['supplier_id']);
             $defaultCategory = Category::firstOrCreate(['name' => 'غير مصنف']);
-            $paidTotal = $validated['paid'] ?? 0;
-            $grandTotal = 0;
-            $resolvedItems = [];
 
-            foreach ($validated['items'] as $item) {
+            // معرّف صف الدين القديم إن وجد (0 إن لم يُنشأ بعد)
+            $oldDebtPartId = DB::table('parts')->where('part_number', 'OLD_DEBT')->value('id') ?? 0;
+
+            // دين قديم على المورد (موجب = علينا) بنفس عملة الفاتورة الجديدة فقط
+            $oldDebt = max(0,
+                (float) DB::table('purchases')
+                    ->where('supplier_id', $supplier->id)
+                    ->where('currency', $currency)
+                    ->where('part_id', '!=', $oldDebtPartId)
+                    ->sum('remaining')
+                -
+                (float) DB::table('supplier_payments')
+                    ->where('supplier_id', $supplier->id)
+                    ->where('currency', $currency)
+                    ->sum('amount')
+                -
+                (float) DB::table('purchases')
+                    ->where('supplier_id', $supplier->id)
+                    ->where('currency', $currency)
+                    ->where('part_id', $oldDebtPartId)
+                    ->sum('paid')
+            );
+            $cashAfterItems = max(0, $paidTotal - $grandTotal);
+            $oldDebtPaid = min($oldDebt, $cashAfterItems);
+            $excess = $cashAfterItems - $oldDebtPaid;
+
+            $firstPurchaseId = null;
+            $remainingPaid = min($paidTotal, $grandTotal);
+            $itemCount = count($validated['items']);
+
+            foreach ($validated['items'] as $index => $item) {
                 if (!empty($item['part_id'])) {
                     $part = Part::lockForUpdate()->findOrFail($item['part_id']);
                 } else {
+                    $isUsd = $currency === 'USD';
                     $part = Part::create([
                         'name' => $item['part_name'],
-                        'part_number' => '',
+                        'part_number' => (string) Str::uuid(),
                         'category_id' => $defaultCategory->id,
                         'quantity' => 0,
-                        'purchase_price' => $item['unit_price'],
-                        'sale_price' => $item['unit_price'],
-                        'purchase_price_usd' => 0,
-                        'sale_price_usd' => 0,
+                        'purchase_price' => $isUsd ? 0 : $item['unit_price'],
+                        'sale_price' => $isUsd ? 0 : $item['unit_price'],
+                        'purchase_price_usd' => $isUsd ? $item['unit_price'] : 0,
+                        'sale_price_usd' => $isUsd ? $item['unit_price'] : 0,
                         'notes' => '',
                         'alert_threshold' => 5,
                         'image' => '',
@@ -67,30 +105,22 @@ class PurchaseController extends Controller
                 }
 
                 $total = $item['unit_price'] * $item['quantity'];
-                $grandTotal += $total;
-                $resolvedItems[] = ['part' => $part, 'total' => $total, 'item' => $item];
-            }
 
-            $totalRemaining = 0;
-            $remainingPaid = $paidTotal;
-            $itemCount = count($resolvedItems);
-
-            foreach ($resolvedItems as $index => $ri) {
-                $part = $ri['part'];
-                $total = $ri['total'];
-                $item = $ri['item'];
-
-                if ($index === $itemCount - 1) {
+                if ($paidTotal >= $grandTotal) {
+                    $itemPaid = $total;
+                    $remaining = 0.0;
+                } elseif ($index === $itemCount - 1) {
                     $itemPaid = min($total, $remainingPaid);
+                    $remaining = round($total - $itemPaid, 2);
                 } else {
                     $itemPaid = ($grandTotal > 0) ? round($paidTotal * $total / $grandTotal, 2) : 0;
                     $itemPaid = min($itemPaid, $total, $remainingPaid);
+                    $remaining = round($total - $itemPaid, 2);
                 }
-                $remaining = round($total - $itemPaid, 2);
-                $remainingPaid -= $itemPaid;
-                $totalRemaining += $remaining;
 
-                Purchase::create([
+                $remainingPaid -= $itemPaid;
+
+                $purchase = Purchase::create([
                     'supplier_id' => $validated['supplier_id'],
                     'part_id' => $part->id,
                     'quantity' => $item['quantity'],
@@ -99,19 +129,80 @@ class PurchaseController extends Controller
                     'paid' => $itemPaid,
                     'remaining' => $remaining,
                     'status' => $remaining > 0 ? 'علينا دين' : 'مسدد',
-                    'currency' => $validated['currency'] ?? 'SYP',
+                    'currency' => $currency,
                     'purchase_date' => $validated['purchase_date'],
                     'notes' => $validated['notes'] ?? null,
                 ]);
 
+                if ($firstPurchaseId === null) {
+                    $firstPurchaseId = $purchase->id;
+                }
+
                 $part->quantity += $item['quantity'];
-                $part->purchase_price = $item['unit_price'];
+
+                // تحديث سعر القطعة المسجل لآخر سعر شراء (إذا كان مختلفاً)
+                $costField = $currency === 'USD' ? 'purchase_price_usd' : 'purchase_price';
+                $part->{$costField} = round($item['unit_price'], 2);
+
                 $part->save();
             }
 
-            $supplier->balance += $totalRemaining;
-            $supplier->status = $supplier->balance > 0 ? 'علينا' : ($supplier->balance < 0 ? 'لنا' : 'متوازن');
+            // صف عرض للدين القديم المسدد من الفاتورة الجديدة (لا يعدل فواتير قديمة)
+            if ($oldDebt > 0) {
+                $oldDebtPart = Part::firstOrCreate(
+                    ['part_number' => 'OLD_DEBT'],
+                    [
+                        'name' => 'دين قديم',
+                        'category_id' => $defaultCategory->id,
+                        'quantity' => 0,
+                        'purchase_price' => 0,
+                        'sale_price' => 0,
+                        'purchase_price_usd' => 0,
+                        'sale_price_usd' => 0,
+                        'notes' => '',
+                        'alert_threshold' => 0,
+                        'image' => '',
+                        'supplier' => '',
+                    ]
+                );
+                Purchase::create([
+                    'supplier_id' => $validated['supplier_id'],
+                    'part_id' => $oldDebtPart->id,
+                    'quantity' => 1,
+                    'unit_price' => $oldDebt,
+                    'total' => $oldDebt,
+                    'paid' => $oldDebtPaid,
+                    'remaining' => $oldDebt - $oldDebtPaid,
+                    'status' => ($oldDebt - $oldDebtPaid) > 0 ? 'علينا دين' : 'مسدد',
+                    'currency' => $currency,
+                    'purchase_date' => $validated['purchase_date'],
+                    'notes' => 'دين قديم',
+                ]);
+            }
+
+            // رصيد المورد يتحرك بصافي الفاتورة فقط وبنفس عملتها
+            $net = $grandTotal - $paidTotal;
+            if ($currency === 'USD') {
+                $supplier->balance_usd += $net;
+            } else {
+                $supplier->balance_syp += $net;
+            }
+            $supplier->status = $supplier->balance_syp > 0 || $supplier->balance_usd > 0
+                ? 'علينا'
+                : ($supplier->balance_syp < 0 || $supplier->balance_usd < 0 ? 'لنا' : 'متوازن');
             $supplier->save();
+
+            // تسجيل الزيادة كدفعة مورد (للعرض) بدون تعديل فواتير قديمة
+            if ($excess > 0) {
+                SupplierPayment::create([
+                    'supplier_id' => $validated['supplier_id'],
+                    'purchase_id' => $firstPurchaseId,
+                    'amount' => $excess,
+                    'currency' => $currency,
+                    'payment_date' => $validated['purchase_date'],
+                    'notes' => 'دفعة زائدة من فاتورة شراء',
+                ]);
+            }
 
             return response()->json(['message' => 'تم تسجيل المشتريات'], 201);
         });
@@ -126,14 +217,31 @@ class PurchaseController extends Controller
     {
         return DB::transaction(function () use ($purchase) {
             $part = Part::find($purchase->part_id);
-            $part->decrement('quantity', $purchase->quantity);
-
             $supplier = Supplier::find($purchase->supplier_id);
-            $supplier->balance -= $purchase->remaining;
-            $supplier->status = $supplier->balance > 0 ? 'علينا' : ($supplier->balance < 0 ? 'لنا' : 'متوازن');
-            $supplier->save();
+
+            // صف دين قديم إعلاني فقط لا يمس المخزون ولا الرصيد
+            if ($part && $part->part_number !== 'OLD_DEBT') {
+                $part->decrement('quantity', $purchase->quantity);
+                if ($purchase->currency === 'USD') {
+                    $supplier->balance_usd -= ($purchase->remaining * 1.0);
+                } else {
+                    $supplier->balance_syp -= ($purchase->remaining * 1.0);
+                }
+            }
 
             $purchase->delete();
+
+            // إذا حُذفت كل فواتير المورد يُصبح رصيده صفر
+            if (Purchase::where('supplier_id', $purchase->supplier_id)->count() === 0) {
+                $supplier->balance_syp = 0;
+                $supplier->balance_usd = 0;
+            }
+
+            $supplier->status = $supplier->balance_syp > 0 || $supplier->balance_usd > 0
+                ? 'علينا'
+                : ($supplier->balance_syp < 0 || $supplier->balance_usd < 0 ? 'لنا' : 'متوازن');
+            $supplier->save();
+
             return response()->json(['message' => 'Deleted successfully']);
         });
     }

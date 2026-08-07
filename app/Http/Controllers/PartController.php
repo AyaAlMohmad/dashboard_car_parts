@@ -12,11 +12,13 @@ class PartController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $query = Part::with('category');
+        $query = Part::with('category')->where('part_number', '!=', 'OLD_DEBT');
 
         if ($search = $request->input('search')) {
-            $query->where('name', 'like', "%{$search}%")
-                ->orWhere('part_number', 'like', "%{$search}%");
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                    ->orWhere('part_number', 'like', "%{$search}%");
+            });
         }
 
         if ($categoryId = $request->input('category_id')) {
@@ -37,6 +39,8 @@ class PartController extends Controller
             'quantity' => ['required', 'integer', 'min:0'],
             'purchase_price' => ['required_without:purchase_price_usd', 'numeric', 'gt:0'],
             'purchase_price_usd' => ['required_without:purchase_price', 'numeric', 'gt:0'],
+            'sale_price' => ['nullable', 'numeric', 'min:0'],
+            'sale_price_usd' => ['nullable', 'numeric', 'min:0'],
             'notes' => ['nullable', 'string', 'max:1000'],
             'alert_threshold' => ['nullable', 'integer', 'min:0'],
             'image' => ['nullable', 'string'],
@@ -45,7 +49,14 @@ class PartController extends Controller
         return DB::transaction(function () use ($validated) {
             $lira = $validated['purchase_price'] ?? 0;
             $usd = $validated['purchase_price_usd'] ?? 0;
-            $validated['sale_price'] = ($lira > 0) ? $lira : (($usd > 0) ? $usd : 1);
+
+            if (!isset($validated['sale_price'])) {
+                $validated['sale_price'] = $lira > 0 ? $lira : 1;
+            }
+            if (!isset($validated['sale_price_usd'])) {
+                $validated['sale_price_usd'] = $usd > 0 ? $usd : 0;
+            }
+
             $part = Part::create($validated);
 
             return response()->json($part->load('category'), 201);
@@ -66,6 +77,8 @@ class PartController extends Controller
             'quantity' => ['sometimes', 'required', 'integer', 'min:0'],
             'purchase_price' => ['sometimes', 'required_without:purchase_price_usd', 'numeric', 'gt:0'],
             'purchase_price_usd' => ['sometimes', 'required_without:purchase_price', 'numeric', 'gt:0'],
+            'sale_price' => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            'sale_price_usd' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'notes' => ['nullable', 'string', 'max:1000'],
             'alert_threshold' => ['nullable', 'integer', 'min:0'],
             'image' => ['nullable', 'string'],
@@ -75,7 +88,13 @@ class PartController extends Controller
             if (isset($validated['purchase_price']) || isset($validated['purchase_price_usd'])) {
                 $lira = $validated['purchase_price'] ?? $part->purchase_price;
                 $usd = $validated['purchase_price_usd'] ?? $part->purchase_price_usd;
-                $validated['sale_price'] = ($lira > 0) ? $lira : (($usd > 0) ? $usd : 1);
+
+                if (!isset($validated['sale_price'])) {
+                    $validated['sale_price'] = ($lira > 0) ? $lira : 1;
+                }
+                if (!isset($validated['sale_price_usd'])) {
+                    $validated['sale_price_usd'] = ($usd > 0) ? $usd : 0;
+                }
             }
             $part->update($validated);
 

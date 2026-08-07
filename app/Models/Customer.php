@@ -15,11 +15,15 @@ class Customer extends Model
         'phone',
         'address',
         'balance',
+        'balance_syp',
+        'balance_usd',
         'status',
     ];
 
     protected $casts = [
         'balance' => 'decimal:2',
+        'balance_syp' => 'decimal:2',
+        'balance_usd' => 'decimal:2',
     ];
 
     public function sales(): HasMany
