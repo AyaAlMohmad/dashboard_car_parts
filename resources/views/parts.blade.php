@@ -47,6 +47,7 @@
                 <tbody id="partsTableBody"></tbody>
             </table>
         </div>
+        <div id="partsPagination"></div>
     </div>
 </div>
 @endsection

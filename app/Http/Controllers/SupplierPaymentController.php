@@ -55,6 +55,43 @@ class SupplierPaymentController extends Controller
         return response()->json($supplierPayment->load('supplier'));
     }
 
+    public function refund(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'supplier_id' => ['required', 'exists:suppliers,id'],
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+            'currency' => ['nullable', 'in:SYP,USD'],
+            'payment_date' => ['required', 'date'],
+        ]);
+
+        return DB::transaction(function () use ($validated) {
+            $currency = $validated['currency'] = $validated['currency'] ?? 'SYP';
+            $amount = $validated['amount'];
+
+            $payment = SupplierPayment::create([
+                'supplier_id' => $validated['supplier_id'],
+                'amount' => $amount,
+                'currency' => $currency,
+                'payment_date' => $validated['payment_date'],
+                'notes' => 'استرجاع مبلغ' . ($validated['notes'] ? ' - ' . $validated['notes'] : ''),
+            ]);
+
+            $supplier = Supplier::lockForUpdate()->find($validated['supplier_id']);
+            if ($currency === 'USD') {
+                $supplier->balance_usd = round($supplier->balance_usd + $amount, 2);
+            } else {
+                $supplier->balance_syp = round($supplier->balance_syp + $amount, 2);
+            }
+            $supplier->status = $supplier->balance_syp > 0 || $supplier->balance_usd > 0
+                ? 'علينا'
+                : ($supplier->balance_syp < 0 || $supplier->balance_usd < 0 ? 'لنا' : 'متوازن');
+            $supplier->save();
+
+            return response()->json($payment->load('supplier'), 201);
+        });
+    }
+
     public function destroy(SupplierPayment $supplierPayment): JsonResponse
     {
         return DB::transaction(function () use ($supplierPayment) {

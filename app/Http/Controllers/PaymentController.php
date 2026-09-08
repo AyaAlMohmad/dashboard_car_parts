@@ -53,9 +53,6 @@ class PaymentController extends Controller
                 : ($customer->balance_syp > 0 || $customer->balance_usd > 0 ? 'دائن' : 'متوان');
             $customer->save();
 
-            // تحديث حالة الفواتير المفتوحة بالدفعة الجديدة
-            $this->updateCustomerInvoicesStatus($customer, $currency, $amount);
-
             return response()->json($payment->load('customer'), 201);
         });
     }
@@ -63,6 +60,48 @@ class PaymentController extends Controller
     public function show(Payment $payment): JsonResponse
     {
         return response()->json($payment->load('customer'));
+    }
+
+    public function refund(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'customer_id' => ['required', 'exists:customers,id'],
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+            'currency' => ['nullable', 'in:SYP,USD'],
+            'payment_date' => ['required', 'date'],
+        ]);
+
+        return DB::transaction(function () use ($validated) {
+            $currency = $validated['currency'] = $validated['currency'] ?? 'SYP';
+            $amount = $validated['amount'];
+
+            $customer = Customer::lockForUpdate()->find($validated['customer_id']);
+            $availableCredit = $currency === 'USD' ? $customer->balance_usd : $customer->balance_syp;
+            if ($amount > $availableCredit) {
+                return response()->json(['error' => 'مبلغ الاسترجاع أكبر من رصيد العميل المتاح في هذه العملة'], 422);
+            }
+
+            $payment = Payment::create([
+                'customer_id' => $validated['customer_id'],
+                'amount' => $amount,
+                'currency' => $currency,
+                'payment_date' => $validated['payment_date'],
+                'notes' => 'استرجاع مبلغ' . ($validated['notes'] ? ' - ' . $validated['notes'] : ''),
+            ]);
+
+            if ($currency === 'USD') {
+                $customer->balance_usd = round($customer->balance_usd - $amount, 2);
+            } else {
+                $customer->balance_syp = round($customer->balance_syp - $amount, 2);
+            }
+            $customer->status = $customer->balance_syp < 0 || $customer->balance_usd < 0
+                ? 'مدين'
+                : ($customer->balance_syp > 0 || $customer->balance_usd > 0 ? 'دائن' : 'متوان');
+            $customer->save();
+
+            return response()->json($payment->load('customer'), 201);
+        });
     }
 
     public function destroy(Payment $payment): JsonResponse
@@ -80,95 +119,10 @@ class PaymentController extends Controller
                 : ($customer->balance_syp > 0 || $customer->balance_usd > 0 ? 'دائن' : 'متوان');
             $customer->save();
 
-            // إعادة حساب توزيع المدفوعات على الفواتير
-            $this->updateCustomerInvoicesStatus($customer, $payment->currency);
-
             $payment->delete();
 
             return response()->json(['message' => 'Deleted successfully']);
         });
     }
 
-    private function updateCustomerInvoicesStatus(Customer $customer, ?string $currency = null, ?float $amount = null): void
-    {
-        // إعادة الحساب من الصفر لهذه العملة
-        $customer->invoices()
-            ->where('currency', $currency)
-            ->update([
-                'remaining' => DB::raw('GREATEST(0, `total` - `paid`)'),
-                'status' => DB::raw('CASE WHEN `paid` >= `total` THEN "مسدد" ELSE "عليه دين" END'),
-            ]);
-
-        if ($currency === 'SYP') {
-            $customer->sales()
-                ->update([
-                    'remaining' => DB::raw('GREATEST(0, `total` - `paid`)'),
-                    'status' => DB::raw('CASE WHEN `paid` >= `total` THEN "مسدد" ELSE "عليه دين" END'),
-                ]);
-        }
-
-        // عند الحذف نجمع كل دفعات هذه العملة ونعيد التوزيع
-        if ($amount === null) {
-            $amount = round($customer->payments()->where('currency', $currency)->get()->sum(fn ($p) => (float) $p->amount), 2);
-        }
-
-        $available = round($amount, 2);
-
-        // تغطية الفواتير المفتوحة بهذه العملة
-        $invoices = $customer->invoices()
-            ->where('currency', $currency)
-            ->where('status', 'عليه دين')
-            ->orderBy('sale_date')
-            ->get();
-
-        foreach ($invoices as $invoice) {
-            if ($available <= 0) {
-                break;
-            }
-
-            $needed = round((float) $invoice->remaining, 2);
-
-            if ($available >= $needed) {
-                $available = round($available - $needed, 2);
-                $invoice->update([
-                    'remaining' => 0,
-                    'status' => 'مسدد',
-                ]);
-            } else {
-                $invoice->update([
-                    'remaining' => round((float) $invoice->remaining - $available, 2),
-                ]);
-                $available = 0;
-            }
-        }
-
-        // تغطية المبيعات المفتوحة بما تبقى من المبلغ (سوري فقط)
-        if ($currency === 'SYP' && $available > 0) {
-            $sales = $customer->sales()
-                ->where('status', 'عليه دين')
-                ->orderBy('sale_date')
-                ->get();
-
-            foreach ($sales as $sale) {
-                if ($available <= 0) {
-                    break;
-                }
-
-                $needed = round((float) $sale->remaining, 2);
-
-                if ($available >= $needed) {
-                    $available = round($available - $needed, 2);
-                    $sale->update([
-                        'remaining' => 0,
-                        'status' => 'مسدد',
-                    ]);
-                } else {
-                    $sale->update([
-                        'remaining' => round((float) $sale->remaining - $available, 2),
-                    ]);
-                    $available = 0;
-                }
-            }
-        }
-    }
 }

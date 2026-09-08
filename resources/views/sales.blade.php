@@ -43,6 +43,7 @@
                 <tbody id="invoicesTableBody"></tbody>
             </table>
         </div>
+        <div id="invoicesPagination"></div>
     </div>
 </div>
 @endsection

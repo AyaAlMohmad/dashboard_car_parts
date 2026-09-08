@@ -183,8 +183,17 @@ window.updateNotifDropdown = function (items) {
 
 window.loadInventoryNotifications = async function () {
     try {
-        const data = await apiFetch('/parts');
-        const parts = data.data || [];
+        // جلب كل صفحات الأصناف لتجاوز pagination
+        let page = 1;
+        let allPartsData = [];
+        while (true) {
+            const res = await apiFetch(`/parts?page=${page}`);
+            allPartsData = allPartsData.concat(res.data || []);
+            if (page >= (res.last_page || 1)) break;
+            page++;
+            if (page > 100) break;
+        }
+        const parts = allPartsData;
         const lowStockItems = parts.filter(i => i.quantity <= (i.alert_threshold || 5));
         const badge = document.getElementById('inventoryBadge');
         if (badge) {

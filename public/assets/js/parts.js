@@ -4,16 +4,28 @@ let allSuppliers = [];
 let _partModalItem = null;
 let _partModalOverrides = {};
 let _partImageBase64 = '';
+let partsPage = 1;
+const partsPerPage = 20;
 
 async function loadParts() {
     window.loadParts = loadParts;
     try {
-        const [partsData, catsData, suppliersData] = await Promise.all([
-            apiFetch('/parts'),
+        // جلب كل صفحات الأصناف لتجاوز pagination
+        let page = 1;
+        let allPartsData = [];
+        while (true) {
+            const res = await apiFetch(`/parts?page=${page}`);
+            allPartsData = allPartsData.concat(res.data || []);
+            if (page >= (res.last_page || 1)) break;
+            page++;
+            if (page > 100) break; // حماية من loop لانهائي
+        }
+        allParts = allPartsData;
+
+        const [catsData, suppliersData] = await Promise.all([
             apiFetch('/categories'),
             apiFetch('/suppliers')
         ]);
-        allParts = partsData.data || [];
         allCategories = catsData || [];
         allSuppliers = suppliersData.data || [];
 
@@ -53,12 +65,20 @@ function renderParts() {
         const matchCat = !catId || String(i.category_id) === String(catId);
         return matchSearch && matchCat;
     });
+
+    // pagination: عرض 20 صنف بالصفحة
+    const totalPages = Math.ceil(filtered.length / partsPerPage);
+    if (partsPage > totalPages) partsPage = totalPages || 1;
+    const start = (partsPage - 1) * partsPerPage;
+    const pageItems = filtered.slice(start, start + partsPerPage);
+
     const tbody = document.getElementById('partsTableBody');
-    if (filtered.length === 0) {
+    if (pageItems.length === 0) {
         tbody.innerHTML = '<tr><td colspan="13"><div class="empty-state">📦 لا توجد قطع</div></td></tr>';
+        renderPartsPagination(0);
         return;
     }
-    tbody.innerHTML = filtered.map((i) => {
+    tbody.innerHTML = pageItems.map((i) => {
         const low = i.quantity <= (i.alert_threshold || 5);
         return `<tr style="${low ? 'background:#ffcccc;color:#900;font-weight:bold;' : ''}">
             <td>${i.id}</td>
@@ -79,6 +99,49 @@ function renderParts() {
             </td>
         </tr>`;
     }).join('');
+    renderPartsPagination(filtered.length);
+}
+
+function renderPartsPagination(total) {
+    const totalPages = Math.ceil(total / partsPerPage);
+    const container = document.getElementById('partsPagination');
+    if (!container) return;
+    if (totalPages <= 1) {
+        container.innerHTML = '';
+        return;
+    }
+    let html = '<div class="pagination" style="display:flex;justify-content:center;align-items:center;gap:6px;margin-top:16px;flex-wrap:wrap;">';
+
+    html += `<button class="btn btn-outline btn-xs" onclick="changePartsPage(${partsPage - 1})" ${partsPage === 1 ? 'disabled' : ''}>← السابق</button>`;
+
+    for (let i = 1; i <= totalPages; i++) {
+        if (i === partsPage) {
+            html += `<span class="btn btn-primary btn-xs" style="cursor:default">${i}</span>`;
+        } else if (i === 1 || i === totalPages || (i >= partsPage - 1 && i <= partsPage + 1)) {
+            html += `<button class="btn btn-outline btn-xs" onclick="changePartsPage(${i})">${i}</button>`;
+        } else if (i === partsPage - 2 || i === partsPage + 2) {
+            html += `<span style="padding:4px 8px;">…</span>`;
+        }
+    }
+
+    html += `<button class="btn btn-outline btn-xs" onclick="changePartsPage(${partsPage + 1})" ${partsPage === totalPages ? 'disabled' : ''}>التالي →</button>`;
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+window.changePartsPage = function (page) {
+    const search = (document.getElementById('partSearch')?.value || '').toLowerCase();
+    const catId = document.getElementById('categoryFilter')?.value || '';
+    let filtered = allParts.filter((i) => {
+        const matchSearch = i.name.toLowerCase().includes(search) || (i.part_number || '').toLowerCase().includes(search);
+        const matchCat = !catId || String(i.category_id) === String(catId);
+        return matchSearch && matchCat;
+    });
+    const totalPages = Math.ceil(filtered.length / partsPerPage);
+    if (page < 1 || page > totalPages) return;
+    partsPage = page;
+    renderParts();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function cachePartModalState(item) {

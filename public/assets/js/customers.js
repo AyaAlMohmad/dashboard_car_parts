@@ -1,10 +1,20 @@
 let allCustomers = [];
+let customersPage = 1;
+const customersPerPage = 20;
 
 async function loadCustomers() {
     window.loadCustomers = loadCustomers;
     try {
-        const data = await apiFetch('/customers');
-        allCustomers = data.data || [];
+        let page = 1;
+        let allData = [];
+        while (true) {
+            const res = await apiFetch(`/customers?page=${page}`);
+            allData = allData.concat(res.data || []);
+            if (page >= (res.last_page || 1)) break;
+            page++;
+            if (page > 100) break;
+        }
+        allCustomers = allData;
         renderCustomers();
     } catch (e) {
         showToast('حدث خطأ أثناء تحميل العملاء', 'error');
@@ -17,12 +27,19 @@ function renderCustomers() {
     let filtered = allCustomers.filter(
         (c) => c.name.toLowerCase().includes(search) || (c.phone || '').includes(search)
     );
+
+    const totalPages = Math.ceil(filtered.length / customersPerPage);
+    if (customersPage > totalPages) customersPage = totalPages || 1;
+    const start = (customersPage - 1) * customersPerPage;
+    const pageItems = filtered.slice(start, start + customersPerPage);
+
     const tbody = document.getElementById('customersTableBody');
-    if (filtered.length === 0) {
+    if (pageItems.length === 0) {
         tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state">👤 لا يوجد عملاء</div></td></tr>';
+        renderCustomersPagination(0);
         return;
     }
-    tbody.innerHTML = filtered.map((c) => {
+    tbody.innerHTML = pageItems.map((c) => {
         const debtSyp = parseFloat(c.debt_syp || 0);
         const debtUsd = parseFloat(c.debt_usd || 0);
         const paidSyp = parseFloat(c.paid_syp || 0);
@@ -45,6 +62,7 @@ function renderCustomers() {
             <td style="font-size:0.85em;line-height:1.5;">
                 <div style="color:var(--danger)">دين: ${formatCurrency(debtSyp, 'ل.س')} | ${formatCurrency(debtUsd, '$')}</div>
                 <div style="color:var(--success)">مسدد: ${formatCurrency(paidSyp, 'ل.س')} | ${formatCurrency(paidUsd, '$')}</div>
+                <div style="color:var(--primary)">رصيد زائد: ${formatCurrency(overSyp, 'ل.س')} | ${formatCurrency(overUsd, '$')}</div>
             </td>
             <td>${badge}</td>
             <td>${formatDate(c.created_at)}</td>
@@ -55,6 +73,34 @@ function renderCustomers() {
             </td>
         </tr>`;
     }).join('');
+    renderCustomersPagination(filtered.length);
+}
+
+function renderCustomersPagination(total) {
+    const totalPages = Math.ceil(total / customersPerPage);
+    const container = document.getElementById('customersPagination');
+    if (!container) return;
+    if (totalPages <= 1) { container.innerHTML = ''; return; }
+    let html = '<div class="pagination" style="display:flex;justify-content:center;align-items:center;gap:6px;margin-top:16px;flex-wrap:wrap;">';
+    html += `<button class="btn btn-outline btn-xs" onclick="changeCustomersPage(${customersPage - 1})" ${customersPage === 1 ? 'disabled' : ''}>← السابق</button>`;
+    for (let i = 1; i <= totalPages; i++) {
+        if (i === customersPage) { html += `<span class="btn btn-primary btn-xs" style="cursor:default">${i}</span>`; }
+        else if (i === 1 || i === totalPages || (i >= customersPage - 1 && i <= customersPage + 1)) { html += `<button class="btn btn-outline btn-xs" onclick="changeCustomersPage(${i})">${i}</button>`; }
+        else if (i === customersPage - 2 || i === customersPage + 2) { html += `<span style="padding:4px 8px;">…</span>`; }
+    }
+    html += `<button class="btn btn-outline btn-xs" onclick="changeCustomersPage(${customersPage + 1})" ${customersPage === totalPages ? 'disabled' : ''}>التالي →</button>`;
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+window.changeCustomersPage = function (page) {
+    const search = (document.getElementById('customerSearch')?.value || '').toLowerCase();
+    let filtered = allCustomers.filter((c) => c.name.toLowerCase().includes(search) || (c.phone || '').includes(search));
+    const totalPages = Math.ceil(filtered.length / customersPerPage);
+    if (page < 1 || page > totalPages) return;
+    customersPage = page;
+    renderCustomers();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 window.openCustomerModal = function (customer = null) {

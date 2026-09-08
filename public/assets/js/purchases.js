@@ -3,6 +3,8 @@ let allSuppliers = [];
 let allParts = [];
 let _purchaseModalOverrides = {};
 let purchaseItems = [];
+let purchasesPage = 1;
+const purchasesPerPage = 20;
 
 function formatNumber(n) {
     return Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -11,14 +13,38 @@ function formatNumber(n) {
 async function loadPurchases() {
     window.loadPurchases = loadPurchases;
     try {
-        const [purchasesData, suppliersData, partsData] = await Promise.all([
-            apiFetch('/purchases'),
-            apiFetch('/suppliers'),
-            apiFetch('/parts')
-        ]);
-        allPurchases = purchasesData.data || [];
-        allSuppliers = suppliersData.data || [];
-        allParts = partsData.data || [];
+        let page = 1;
+        let allPurData = [];
+        while (true) {
+            const res = await apiFetch(`/purchases?page=${page}`);
+            allPurData = allPurData.concat(res.data || []);
+            if (page >= (res.last_page || 1)) break;
+            page++;
+            if (page > 100) break;
+        }
+        allPurchases = allPurData;
+
+        let sPage = 1;
+        let allSup = [];
+        while (true) {
+            const res = await apiFetch(`/suppliers?page=${sPage}`);
+            allSup = allSup.concat(res.data || []);
+            if (sPage >= (res.last_page || 1)) break;
+            sPage++;
+            if (sPage > 100) break;
+        }
+        allSuppliers = allSup;
+
+        let pPage = 1;
+        let allPartsData = [];
+        while (true) {
+            const res = await apiFetch(`/parts?page=${pPage}`);
+            allPartsData = allPartsData.concat(res.data || []);
+            if (pPage >= (res.last_page || 1)) break;
+            pPage++;
+            if (pPage > 100) break;
+        }
+        allParts = allPartsData;
         renderPurchases();
     } catch (e) {
         showToast('حدث خطأ أثناء تحميل البيانات', 'error');
@@ -72,12 +98,19 @@ function renderPurchases() {
         const itemNames = g.items.map(i => (i.part?.name || '').toLowerCase()).join(' ');
         return sname.includes(search) || itemNames.includes(search);
     });
+
+    const totalPages = Math.ceil(filtered.length / purchasesPerPage);
+    if (purchasesPage > totalPages) purchasesPage = totalPages || 1;
+    const start = (purchasesPage - 1) * purchasesPerPage;
+    const pageItems = filtered.slice(start, start + purchasesPerPage);
+
     const tbody = document.getElementById('purchasesTableBody');
-    if (filtered.length === 0) {
+    if (pageItems.length === 0) {
         tbody.innerHTML = '<tr><td colspan="12"><div class="empty-state">📥 لا توجد مشتريات</div></td></tr>';
+        renderPurchasesPagination(0);
         return;
     }
-    tbody.innerHTML = filtered.map((g) => {
+    tbody.innerHTML = pageItems.map((g) => {
         const curr = g.first.currency === 'USD' ? '$' : 'ل.س';
         const countText = g.items.length > 1 ? `${g.items.length} قطع` : `${g.items.length} قطعة`;
         return `<tr>
@@ -94,10 +127,65 @@ function renderPurchases() {
             <td>${renderBadge(g.status)}</td>
                         <td>
                 <button class="btn btn-outline btn-xs" onclick="viewPurchase(${g.first.id})">عرض</button>
+                <button class="btn btn-warning btn-xs" onclick="returnPurchase(${g.first.id})">↩️ مرتجع</button>
                 <button class="btn btn-danger btn-xs" onclick="deletePurchase(${g.first.id})">حذف</button>
             </td>
         </tr>`;
     }).join('');
+    renderPurchasesPagination(filtered.length);
+}
+
+function renderPurchasesPagination(total) {
+    const totalPages = Math.ceil(total / purchasesPerPage);
+    const container = document.getElementById('purchasesPagination');
+    if (!container) return;
+    if (totalPages <= 1) { container.innerHTML = ''; return; }
+    let html = '<div class="pagination" style="display:flex;justify-content:center;align-items:center;gap:6px;margin-top:16px;flex-wrap:wrap;">';
+    html += `<button class="btn btn-outline btn-xs" onclick="changePurchasesPage(${purchasesPage - 1})" ${purchasesPage === 1 ? 'disabled' : ''}>← السابق</button>`;
+    for (let i = 1; i <= totalPages; i++) {
+        if (i === purchasesPage) { html += `<span class="btn btn-primary btn-xs" style="cursor:default">${i}</span>`; }
+        else if (i === 1 || i === totalPages || (i >= purchasesPage - 1 && i <= purchasesPage + 1)) { html += `<button class="btn btn-outline btn-xs" onclick="changePurchasesPage(${i})">${i}</button>`; }
+        else if (i === purchasesPage - 2 || i === purchasesPage + 2) { html += `<span style="padding:4px 8px;">…</span>`; }
+    }
+    html += `<button class="btn btn-outline btn-xs" onclick="changePurchasesPage(${purchasesPage + 1})" ${purchasesPage === totalPages ? 'disabled' : ''}>التالي →</button>`;
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+window.changePurchasesPage = function (page) {
+    const search = (document.getElementById('purchaseSearch')?.value || '').toLowerCase();
+    const groups = groupPurchases();
+    let filtered = groups.filter((g) => {
+        const sname = (g.first.supplier?.name || '').toLowerCase();
+        const itemNames = g.items.map(i => (i.part?.name || '').toLowerCase()).join(' ');
+        return sname.includes(search) || itemNames.includes(search);
+    });
+    const totalPages = Math.ceil(filtered.length / purchasesPerPage);
+    if (page < 1 || page > totalPages) return;
+    purchasesPage = page;
+    renderPurchases();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function updatePurchaseSupplierBalance(supplierId) {
+    const supplier = allSuppliers.find(s => s.id == supplierId);
+    const group = document.getElementById('purchaseSettleGroup');
+    const input = document.getElementById('purchaseSettle');
+    const label = document.getElementById('purchaseSettleLabel');
+    if (!supplier || !group || !input || !label) return;
+    const currency = document.getElementById('purchaseCurrency')?.value || 'SYP';
+    const field = currency === 'USD' ? 'balance_usd' : 'balance_syp';
+    const balance = -Math.min(0, parseFloat(supplier[field] || 0));
+    if (balance > 0) {
+        group.style.display = 'block';
+        input.max = balance.toFixed(2);
+        label.textContent = `تسديد من رصيد زائد قديم (متاح: ${formatNumber(balance)})`;
+    } else {
+        group.style.display = 'none';
+        input.value = 0;
+        input.max = 0;
+    }
+    updatePurchaseRemaining();
 }
 
 function cachePurchaseModalState() {
@@ -108,6 +196,7 @@ function cachePurchaseModalState() {
         currency: document.getElementById('purchaseCurrency')?.value || '',
         notes: document.getElementById('purchaseNotes')?.value || '',
         paid: document.getElementById('purchasePaid')?.value || '',
+        settle: document.getElementById('purchaseSettle')?.value || '0',
         items: purchaseItems,
     };
 }
@@ -119,11 +208,14 @@ function restorePurchaseModalState() {
     if (ov.currency !== undefined && document.getElementById('purchaseCurrency')) document.getElementById('purchaseCurrency').value = ov.currency;
     if (ov.notes !== undefined && document.getElementById('purchaseNotes')) document.getElementById('purchaseNotes').value = ov.notes;
     if (ov.paid !== undefined && document.getElementById('purchasePaid')) document.getElementById('purchasePaid').value = ov.paid;
+    if (ov.settle !== undefined && document.getElementById('purchaseSettle')) document.getElementById('purchaseSettle').value = ov.settle;
     if (ov.items && ov.items.length > 0) {
         purchaseItems = ov.items;
         renderPurchaseItems();
     }
     _purchaseModalOverrides = {};
+    window._purchaseSettleChanged = false;
+    if (ov.supplier !== undefined) updatePurchaseSupplierBalance(ov.supplier);
     updatePurchaseTotal();
 }
 
@@ -136,6 +228,8 @@ window.viewPurchase = function (id) {
     const total = items.reduce((s, i) => s + parseFloat(i.total), 0);
     const paid = items.reduce((s, i) => s + parseFloat(i.paid), 0);
     const remaining = items.reduce((s, i) => s + parseFloat(i.remaining), 0);
+    const credit = items.reduce((s, i) => s + parseFloat(i.credit_used || 0), 0);
+    const creditNote = (credit > 0 && remaining === 0) ? `<div style="color:var(--success);margin:8px 0;">✅ تم خصم ${currSymbol} ${formatNumber(credit)} من رصيد قديم وأصبحت فاتورة الشراء مسددة</div>` : '';
     const itemsHtml = items.map(it => `<tr><td>${it.part?.name || '؟'}</td><td>${it.quantity}</td><td>${formatNumber(it.unit_price)}</td><td>${formatNumber(it.total)}</td></tr>`).join('');
     showModal('🧾 تفاصيل الشراء #' + id, `
         <div style="margin-bottom:12px;">
@@ -147,9 +241,11 @@ window.viewPurchase = function (id) {
             <thead><tr><th>القطعة</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th></tr></thead>
             <tbody>${itemsHtml || '<tr><td colspan="4" style="text-align:center;">لا توجد قطع</td></tr>'}</tbody>
         </table>
+        ${creditNote}
         <div style="margin-top:12px;text-align:left;font-weight:bold;">
             <div>الإجمالي: ${currSymbol} ${formatNumber(total)}</div>
-            <div>المدفوع: ${currSymbol} ${formatNumber(paid)}</div>
+            <div>رصيد قديم زائد: ${currSymbol} ${formatNumber(credit)}</div>
+            <div>المبلغ المدفوع حالياً: ${currSymbol} ${formatNumber(paid)}</div>
             <div>المتبقي: ${currSymbol} ${formatNumber(remaining)}</div>
         </div>
     `);
@@ -157,6 +253,7 @@ window.viewPurchase = function (id) {
 
 window.openPurchaseModal = function (restoreState = false) {
     purchaseItems = [];
+    window._purchaseSettleChanged = false;
     if (!restoreState) _purchaseModalOverrides = {};
     const supplierOpts = allSuppliers.map((s) => ({ value: String(s.id), text: `${s.name} - ${s.phone || ''}` }));
     const today = new Date().toISOString().split('T')[0];
@@ -211,6 +308,7 @@ window.openPurchaseModal = function (restoreState = false) {
 
                     <div class="form-row" style="margin-top:12px;">
                         <div class="form-group"><label>المبلغ المدفوع</label><input type="number" id="purchasePaid" value="0" step="0.01" oninput="updatePurchaseRemaining()"></div>
+                        <div class="form-group" id="purchaseSettleGroup" style="display:none;"><label id="purchaseSettleLabel">تسديد من رصيد زائد قديم</label><input type="number" id="purchaseSettle" value="0" step="0.01" oninput="window._purchaseSettleChanged = true; updatePurchaseRemaining()"></div>
                         <div class="form-group"><label>المتبقي</label><input id="purchaseRemaining" readonly style="background:#fef3c7;font-weight:700;color:var(--danger);"></div>
                         <div class="form-group"><label>مبلغ الزيادة</label><input id="purchaseOver" readonly style="background:#d1fae5;font-weight:700;color:var(--success);"></div>
                     </div>
@@ -225,7 +323,7 @@ window.openPurchaseModal = function (restoreState = false) {
     window._purchaseSupplierSelect = initSearchableSelect(
         'purchaseSupplierInput',
         supplierOpts,
-        (val, text) => { document.getElementById('purchaseSupplier').value = val; }
+        (val, text) => { document.getElementById('purchaseSupplier').value = val; window._purchaseSettleChanged = false; updatePurchaseSupplierBalance(val); }
     );
     restorePurchaseModalState();
 };
@@ -329,10 +427,19 @@ function updatePurchaseTotal() {
 function updatePurchaseRemaining() {
     const total = purchaseItems.reduce((sum, it) => sum + it.total, 0);
     const paid = parseFloat(document.getElementById('purchasePaid')?.value) || 0;
+    const settleInput = document.getElementById('purchaseSettle');
+    const balanceLimit = parseFloat(settleInput?.max) || 0;
+    const shortfall = Math.max(0, total - paid);
+    const maxSettle = Math.min(balanceLimit, shortfall);
+    const currentSettle = parseFloat(settleInput?.value) || 0;
+    let settle = (window._purchaseSettleChanged && currentSettle > 0) ? currentSettle : maxSettle;
+    if (settle > maxSettle) settle = maxSettle;
+    if (settleInput) settleInput.value = settle.toFixed(2);
+    const effective = paid + settle;
     const rem = document.getElementById('purchaseRemaining');
     const over = document.getElementById('purchaseOver');
-    if (rem) rem.value = formatNumber(Math.max(0, total - paid));
-    if (over) over.value = formatNumber(Math.max(0, paid - total));
+    if (rem) rem.value = formatNumber(Math.max(0, total - effective));
+    if (over) over.value = formatNumber(Math.max(0, effective - total));
 }
 
 function removePurchaseItem(idx) {
@@ -386,6 +493,7 @@ window.savePurchase = async function () {
     const currency = document.getElementById('purchaseCurrency')?.value || 'SYP';
     const notes = document.getElementById('purchaseNotes')?.value || '';
     const paid = parseFloat(document.getElementById('purchasePaid')?.value) || 0;
+    const settle_credit = parseFloat(document.getElementById('purchaseSettle')?.value) || 0;
 
     if (!supplier_id || !purchase_date || purchaseItems.length === 0) {
         showToast('المورد، التاريخ، وقطعة واحدة على الأقل مطلوبة', 'error');
@@ -401,6 +509,7 @@ window.savePurchase = async function () {
                 currency,
                 notes,
                 paid,
+                settle_credit,
                 items: purchaseItems.map(it => ({ part_id: it.part_id, part_name: it.part_name, quantity: it.quantity, unit_price: it.unit_price }))
             })
         });
@@ -411,6 +520,65 @@ window.savePurchase = async function () {
         if (typeof window.loadParts === 'function') window.loadParts();
     } catch (e) {
         showToast('حدث خطأ أثناء الحفظ', 'error');
+        console.error(e);
+    }
+};
+
+window.returnPurchase = function (id) {
+    const target = allPurchases.find(p => p.id == id);
+    if (!target) return;
+    const key = groupKey(target);
+    const items = allPurchases.filter(p => groupKey(p) === key);
+    const realItems = items.filter(i => !(i.part?.part_number === 'OLD_DEBT' || i.notes === 'دين قديم'));
+    const itemsHtml = realItems.map(it => {
+        const max = it.quantity - (it.returned_quantity || 0);
+        return `<tr>
+            <td>${it.part?.name || '؟'}</td>
+            <td>${it.quantity}</td>
+            <td>${it.returned_quantity || 0}</td>
+            <td><input type="number" id="return-qty-${it.id}" min="0" max="${max}" value="0" style="width:80px;"></td>
+        </tr>`;
+    }).join('');
+    showModal('↩️ ترجيع مشتريات #' + id, `
+        <div style="margin-bottom:12px;">
+            <div><strong>المورد:</strong> ${target.supplier?.name || '؟'}</div>
+            <div><strong>التاريخ:</strong> ${formatDate(target.purchase_date)}</div>
+        </div>
+        <table style="width:100%;font-size:13px;">
+            <thead><tr><th>القطعة</th><th>الكمية</th><th>مرتجع سابق</th><th>كمية الترجيع</th></tr></thead>
+            <tbody>${itemsHtml || '<tr><td colspan="4" style="text-align:center;">لا توجد قطع</td></tr>'}</tbody>
+        </table>
+        <div style="margin-top:16px;text-align:left;">
+            <button class="btn btn-primary" onclick="savePurchaseReturn(${id}, [${realItems.map(i => i.id).join(',')}])">💾 حفظ الترجيع</button>
+        </div>
+    `);
+};
+
+window.savePurchaseReturn = async function (firstId, itemIds) {
+    const items = itemIds
+        .map(id => {
+            const qty = parseInt(document.getElementById('return-qty-' + id)?.value) || 0;
+            return qty > 0 ? { purchase_id: id, quantity: qty } : null;
+        })
+        .filter(Boolean);
+
+    if (items.length === 0) {
+        showToast('حدد كمية للترجيع', 'error');
+        return;
+    }
+
+    try {
+        await apiFetch('/purchases/' + firstId + '/return', {
+            method: 'POST',
+            body: JSON.stringify({ items })
+        });
+        showToast('تم الترجيع ✅');
+        closeModal('genericModal');
+        loadPurchases();
+        if (typeof window.loadSuppliers === 'function') window.loadSuppliers();
+        if (typeof window.loadParts === 'function') window.loadParts();
+    } catch (e) {
+        showToast('حدث خطأ أثناء الترجيع', 'error');
         console.error(e);
     }
 };

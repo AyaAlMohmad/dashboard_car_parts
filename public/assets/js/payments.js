@@ -1,16 +1,33 @@
 let allPayments = [];
 let allCustomers = [];
 let _paymentModalOverrides = {};
+let paymentsPage = 1;
+const paymentsPerPage = 20;
 
 async function loadPayments() {
     window.loadPayments = loadPayments;
     try {
-        const [paymentsData, customersData] = await Promise.all([
-            apiFetch('/payments'),
-            apiFetch('/customers')
-        ]);
-        allPayments = paymentsData.data || [];
-        allCustomers = customersData.data || [];
+        let page = 1;
+        let allData = [];
+        while (true) {
+            const res = await apiFetch(`/payments?page=${page}`);
+            allData = allData.concat(res.data || []);
+            if (page >= (res.last_page || 1)) break;
+            page++;
+            if (page > 100) break;
+        }
+        allPayments = allData;
+
+        let cPage = 1;
+        let allCust = [];
+        while (true) {
+            const res = await apiFetch(`/customers?page=${cPage}`);
+            allCust = allCust.concat(res.data || []);
+            if (cPage >= (res.last_page || 1)) break;
+            cPage++;
+            if (cPage > 100) break;
+        }
+        allCustomers = allCust;
         renderPayments();
     } catch (e) {
         showToast('حدث خطأ أثناء تحميل البيانات', 'error');
@@ -24,12 +41,19 @@ function renderPayments() {
         const cname = (p.customer?.name || '').toLowerCase();
         return cname.includes(search);
     });
+
+    const totalPages = Math.ceil(filtered.length / paymentsPerPage);
+    if (paymentsPage > totalPages) paymentsPage = totalPages || 1;
+    const start = (paymentsPage - 1) * paymentsPerPage;
+    const pageItems = filtered.slice(start, start + paymentsPerPage);
+
     const tbody = document.getElementById('paymentsTableBody');
-    if (filtered.length === 0) {
+    if (pageItems.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">💳 لا توجد تسديدات</div></td></tr>';
+        renderPaymentsPagination(0);
         return;
     }
-    tbody.innerHTML = filtered.map((p) => {
+    tbody.innerHTML = pageItems.map((p) => {
         return `<tr>
             <td>${p.id}</td>
             <td>${formatDate(p.payment_date)}</td>
@@ -42,6 +66,37 @@ function renderPayments() {
             </td>
         </tr>`;
     }).join('');
+    renderPaymentsPagination(filtered.length);
+}
+
+function renderPaymentsPagination(total) {
+    const totalPages = Math.ceil(total / paymentsPerPage);
+    const container = document.getElementById('paymentsPagination');
+    if (!container) return;
+    if (totalPages <= 1) { container.innerHTML = ''; return; }
+    let html = '<div class="pagination" style="display:flex;justify-content:center;align-items:center;gap:6px;margin-top:16px;flex-wrap:wrap;">';
+    html += `<button class="btn btn-outline btn-xs" onclick="changePaymentsPage(${paymentsPage - 1})" ${paymentsPage === 1 ? 'disabled' : ''}>← السابق</button>`;
+    for (let i = 1; i <= totalPages; i++) {
+        if (i === paymentsPage) { html += `<span class="btn btn-primary btn-xs" style="cursor:default">${i}</span>`; }
+        else if (i === 1 || i === totalPages || (i >= paymentsPage - 1 && i <= paymentsPage + 1)) { html += `<button class="btn btn-outline btn-xs" onclick="changePaymentsPage(${i})">${i}</button>`; }
+        else if (i === paymentsPage - 2 || i === paymentsPage + 2) { html += `<span style="padding:4px 8px;">…</span>`; }
+    }
+    html += `<button class="btn btn-outline btn-xs" onclick="changePaymentsPage(${paymentsPage + 1})" ${paymentsPage === totalPages ? 'disabled' : ''}>التالي →</button>`;
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+window.changePaymentsPage = function (page) {
+    const search = (document.getElementById('paymentSearch')?.value || '').toLowerCase();
+    let filtered = allPayments.filter((p) => {
+        const cname = (p.customer?.name || '').toLowerCase();
+        return cname.includes(search);
+    });
+    const totalPages = Math.ceil(filtered.length / paymentsPerPage);
+    if (page < 1 || page > totalPages) return;
+    paymentsPage = page;
+    renderPayments();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function cachePaymentModalState() {
@@ -164,6 +219,70 @@ window.savePayment = async function () {
         if (typeof window.loadSales === 'function') window.loadSales();
     } catch (e) {
         showToast('حدث خطأ أثناء الحفظ', 'error');
+        console.error(e);
+    }
+};
+
+window.openPaymentRefundModal = function () {
+    const customerOpts = allCustomers.map((c) => ({ value: String(c.id), text: `${c.name} - ${c.phone || ''}` }));
+    const today = new Date().toISOString().split('T')[0];
+
+    const html = `
+        <div class="modal-overlay" id="payRefundModal">
+            <div class="modal">
+                <div class="modal-header"><h3>↩️ استرجاع مبلغ للعميل</h3><button class="modal-close" onclick="closeModal('payRefundModal')">✕</button></div>
+                <div class="modal-body">
+                    <div class="form-group"><label>العميل *</label>
+                        <input id="payRefundCustomerInput" placeholder="اكتب اسم العميل..."><input type="hidden" id="payRefundCustomer">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>المبلغ *</label><input type="number" id="payRefundAmount" step="0.01" min="0.01"></div>
+                        <div class="form-group"><label>التاريخ *</label><input type="date" id="payRefundDate" value="${today}"></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>العملة</label>
+                            <select id="payRefundCurrency">
+                                <option value="SYP">ليرة سورية (SYP)</option>
+                                <option value="USD">دولار (USD)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group"><label>ملاحظات</label><textarea id="payRefundNotes" rows="2"></textarea></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline" onclick="closeModal('payRefundModal')">إلغاء</button>
+                    <button class="btn btn-warning" onclick="savePaymentRefund()">💾 حفظ الاسترجاع</button>
+                </div>
+            </div>
+        </div>`;
+    document.getElementById('modalContainer').innerHTML = html;
+    window._payRefundCustomerSelect = initSearchableSelect('payRefundCustomerInput', customerOpts, (val, text) => { document.getElementById('payRefundCustomer').value = val; });
+};
+
+window.savePaymentRefund = async function () {
+    const customer_id = document.getElementById('payRefundCustomer')?.value;
+    const amount = parseFloat(document.getElementById('payRefundAmount')?.value) || 0;
+    const payment_date = document.getElementById('payRefundDate')?.value;
+    const notes = document.getElementById('payRefundNotes')?.value.trim() || '';
+    const currency = document.getElementById('payRefundCurrency')?.value || 'SYP';
+
+    if (!customer_id || amount <= 0 || !payment_date) {
+        showToast('جميع الحقول المطلوبة يجب ملؤها', 'error');
+        return;
+    }
+
+    try {
+        await apiFetch('/payments/refund', {
+            method: 'POST',
+            body: JSON.stringify({ customer_id, amount, payment_date, notes, currency })
+        });
+        showToast('تم استرجاع المبلغ ✅');
+        closeModal('payRefundModal');
+        loadPayments();
+        if (typeof window.loadCustomers === 'function') window.loadCustomers();
+        if (typeof window.loadSales === 'function') window.loadSales();
+    } catch (e) {
+        showToast('حدث خطأ أثناء الاسترجاع', 'error');
         console.error(e);
     }
 };

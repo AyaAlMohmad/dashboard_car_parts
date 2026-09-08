@@ -9,7 +9,10 @@
             <h1>💳 التسديدات</h1>
             <span class="subtitle">تسجيل دفعات العملاء</span>
         </div>
-        <button class="btn btn-success" onclick="openPaymentModal()">💵 تسجيل دفعة</button>
+        <div>
+            <button class="btn btn-success" onclick="openPaymentModal()">💵 تسجيل دفعة</button>
+            <button class="btn btn-warning" onclick="openPaymentRefundModal()">↩️ استرجاع مبلغ</button>
+        </div>
     </div>
     <div class="table-container">
         <div class="table-toolbar">
@@ -38,6 +41,7 @@
                 <tbody id="paymentsTableBody"></tbody>
             </table>
         </div>
+        <div id="paymentsPagination"></div>
     </div>
 </div>
 @endsection

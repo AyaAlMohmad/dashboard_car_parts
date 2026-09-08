@@ -1,10 +1,20 @@
 let allBackups = [];
 let allSchedules = [];
+let backupsPage = 1;
+const backupsPerPage = 20;
 
 async function loadBackups() {
     try {
-        const data = await apiFetch('/backups');
-        allBackups = data.data || [];
+        let page = 1;
+        let allData = [];
+        while (true) {
+            const res = await apiFetch(`/backups?page=${page}`);
+            allData = allData.concat(res.data || []);
+            if (page >= (res.last_page || 1)) break;
+            page++;
+            if (page > 100) break;
+        }
+        allBackups = allData;
         renderBackups();
     } catch (e) {
         showToast('حدث خطأ أثناء تحميل النسخ الاحتياطية', 'error');
@@ -35,12 +45,19 @@ function formatBytes(bytes, decimals = 2) {
 function renderBackups() {
     const search = (document.getElementById('backupSearch')?.value || '').toLowerCase();
     let filtered = allBackups.filter((b) => b.filename.toLowerCase().includes(search));
+
+    const totalPages = Math.ceil(filtered.length / backupsPerPage);
+    if (backupsPage > totalPages) backupsPage = totalPages || 1;
+    const start = (backupsPage - 1) * backupsPerPage;
+    const pageItems = filtered.slice(start, start + backupsPerPage);
+
     const tbody = document.getElementById('backupsTableBody');
-    if (filtered.length === 0) {
+    if (pageItems.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">💾 لا توجد نسخ احتياطية</div></td></tr>';
+        renderBackupsPagination(0);
         return;
     }
-    tbody.innerHTML = filtered.map((b) => {
+    tbody.innerHTML = pageItems.map((b) => {
         const fmt = b.format === 'excel' ? 'Excel' : 'SQL/SQLite';
         const icon = b.format === 'excel' ? '📊' : '🗄️';
         return `<tr>
@@ -57,6 +74,34 @@ function renderBackups() {
             </td>
         </tr>`;
     }).join('');
+    renderBackupsPagination(filtered.length);
+}
+
+function renderBackupsPagination(total) {
+    const totalPages = Math.ceil(total / backupsPerPage);
+    const container = document.getElementById('backupsPagination');
+    if (!container) return;
+    if (totalPages <= 1) { container.innerHTML = ''; return; }
+    let html = '<div class="pagination" style="display:flex;justify-content:center;align-items:center;gap:6px;margin-top:16px;flex-wrap:wrap;">';
+    html += `<button class="btn btn-outline btn-xs" onclick="changeBackupsPage(${backupsPage - 1})" ${backupsPage === 1 ? 'disabled' : ''}>← السابق</button>`;
+    for (let i = 1; i <= totalPages; i++) {
+        if (i === backupsPage) { html += `<span class="btn btn-primary btn-xs" style="cursor:default">${i}</span>`; }
+        else if (i === 1 || i === totalPages || (i >= backupsPage - 1 && i <= backupsPage + 1)) { html += `<button class="btn btn-outline btn-xs" onclick="changeBackupsPage(${i})">${i}</button>`; }
+        else if (i === backupsPage - 2 || i === backupsPage + 2) { html += `<span style="padding:4px 8px;">…</span>`; }
+    }
+    html += `<button class="btn btn-outline btn-xs" onclick="changeBackupsPage(${backupsPage + 1})" ${backupsPage === totalPages ? 'disabled' : ''}>التالي →</button>`;
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+window.changeBackupsPage = function (page) {
+    const search = (document.getElementById('backupSearch')?.value || '').toLowerCase();
+    let filtered = allBackups.filter((b) => b.filename.toLowerCase().includes(search));
+    const totalPages = Math.ceil(filtered.length / backupsPerPage);
+    if (page < 1 || page > totalPages) return;
+    backupsPage = page;
+    renderBackups();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function renderSchedules() {

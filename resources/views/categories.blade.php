@@ -28,6 +28,7 @@
                 <tbody id="categoriesTableBody"></tbody>
             </table>
         </div>
+        <div id="categoriesPagination"></div>
     </div>
 </div>
 @endsection

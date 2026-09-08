@@ -1,16 +1,33 @@
 let allSupplierPayments = [];
 let allSuppliers = [];
 let _supPayModalOverrides = {};
+let supplierPaymentsPage = 1;
+const supplierPaymentsPerPage = 20;
 
 async function loadSupplierPayments() {
     window.loadSupplierPayments = loadSupplierPayments;
     try {
-        const [paymentsData, suppliersData] = await Promise.all([
-            apiFetch('/supplier-payments'),
-            apiFetch('/suppliers')
-        ]);
-        allSupplierPayments = paymentsData.data || [];
-        allSuppliers = suppliersData.data || [];
+        let page = 1;
+        let allData = [];
+        while (true) {
+            const res = await apiFetch(`/supplier-payments?page=${page}`);
+            allData = allData.concat(res.data || []);
+            if (page >= (res.last_page || 1)) break;
+            page++;
+            if (page > 100) break;
+        }
+        allSupplierPayments = allData;
+
+        let sPage = 1;
+        let allSup = [];
+        while (true) {
+            const res = await apiFetch(`/suppliers?page=${sPage}`);
+            allSup = allSup.concat(res.data || []);
+            if (sPage >= (res.last_page || 1)) break;
+            sPage++;
+            if (sPage > 100) break;
+        }
+        allSuppliers = allSup;
         renderSupplierPayments();
     } catch (e) {
         showToast('حدث خطأ أثناء تحميل البيانات', 'error');
@@ -24,12 +41,19 @@ function renderSupplierPayments() {
         const sname = (p.supplier?.name || '').toLowerCase();
         return sname.includes(search);
     });
+
+    const totalPages = Math.ceil(filtered.length / supplierPaymentsPerPage);
+    if (supplierPaymentsPage > totalPages) supplierPaymentsPage = totalPages || 1;
+    const start = (supplierPaymentsPage - 1) * supplierPaymentsPerPage;
+    const pageItems = filtered.slice(start, start + supplierPaymentsPerPage);
+
     const tbody = document.getElementById('supplierPaymentsTableBody');
-    if (filtered.length === 0) {
+    if (pageItems.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">💳 لا توجد دفعات</div></td></tr>';
+        renderSupplierPaymentsPagination(0);
         return;
     }
-    tbody.innerHTML = filtered.map((p) => {
+    tbody.innerHTML = pageItems.map((p) => {
         return `<tr>
             <td>${p.id}</td>
             <td>${formatDate(p.payment_date)}</td>
@@ -42,6 +66,37 @@ function renderSupplierPayments() {
             </td>
         </tr>`;
     }).join('');
+    renderSupplierPaymentsPagination(filtered.length);
+}
+
+function renderSupplierPaymentsPagination(total) {
+    const totalPages = Math.ceil(total / supplierPaymentsPerPage);
+    const container = document.getElementById('supplierPaymentsPagination');
+    if (!container) return;
+    if (totalPages <= 1) { container.innerHTML = ''; return; }
+    let html = '<div class="pagination" style="display:flex;justify-content:center;align-items:center;gap:6px;margin-top:16px;flex-wrap:wrap;">';
+    html += `<button class="btn btn-outline btn-xs" onclick="changeSupplierPaymentsPage(${supplierPaymentsPage - 1})" ${supplierPaymentsPage === 1 ? 'disabled' : ''}>← السابق</button>`;
+    for (let i = 1; i <= totalPages; i++) {
+        if (i === supplierPaymentsPage) { html += `<span class="btn btn-primary btn-xs" style="cursor:default">${i}</span>`; }
+        else if (i === 1 || i === totalPages || (i >= supplierPaymentsPage - 1 && i <= supplierPaymentsPage + 1)) { html += `<button class="btn btn-outline btn-xs" onclick="changeSupplierPaymentsPage(${i})">${i}</button>`; }
+        else if (i === supplierPaymentsPage - 2 || i === supplierPaymentsPage + 2) { html += `<span style="padding:4px 8px;">…</span>`; }
+    }
+    html += `<button class="btn btn-outline btn-xs" onclick="changeSupplierPaymentsPage(${supplierPaymentsPage + 1})" ${supplierPaymentsPage === totalPages ? 'disabled' : ''}>التالي →</button>`;
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+window.changeSupplierPaymentsPage = function (page) {
+    const search = (document.getElementById('supplierPaymentSearch')?.value || '').toLowerCase();
+    let filtered = allSupplierPayments.filter((p) => {
+        const sname = (p.supplier?.name || '').toLowerCase();
+        return sname.includes(search);
+    });
+    const totalPages = Math.ceil(filtered.length / supplierPaymentsPerPage);
+    if (page < 1 || page > totalPages) return;
+    supplierPaymentsPage = page;
+    renderSupplierPayments();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function cacheSupPayModalState() {
@@ -164,6 +219,70 @@ window.saveSupplierPayment = async function () {
         if (typeof window.loadPurchases === 'function') window.loadPurchases();
     } catch (e) {
         showToast('حدث خطأ أثناء الحفظ', 'error');
+        console.error(e);
+    }
+};
+
+window.openSupplierPaymentRefundModal = function () {
+    const supplierOpts = allSuppliers.map((s) => ({ value: String(s.id), text: `${s.name} - ${s.phone || ''}` }));
+    const today = new Date().toISOString().split('T')[0];
+
+    const html = `
+        <div class="modal-overlay" id="supPayRefundModal">
+            <div class="modal">
+                <div class="modal-header"><h3>↩️ استرجاع مبلغ من المورد</h3><button class="modal-close" onclick="closeModal('supPayRefundModal')">✕</button></div>
+                <div class="modal-body">
+                    <div class="form-group"><label>المورد *</label>
+                        <input id="supPayRefundSupplierInput" placeholder="اكتب اسم المورد..."><input type="hidden" id="supPayRefundSupplier">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>المبلغ *</label><input type="number" id="supPayRefundAmount" step="0.01" min="0.01"></div>
+                        <div class="form-group"><label>التاريخ *</label><input type="date" id="supPayRefundDate" value="${today}"></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>العملة</label>
+                            <select id="supPayRefundCurrency">
+                                <option value="SYP">ليرة سورية (SYP)</option>
+                                <option value="USD">دولار (USD)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group"><label>ملاحظات</label><textarea id="supPayRefundNotes" rows="2"></textarea></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline" onclick="closeModal('supPayRefundModal')">إلغاء</button>
+                    <button class="btn btn-warning" onclick="saveSupplierPaymentRefund()">💾 حفظ الاسترجاع</button>
+                </div>
+            </div>
+        </div>`;
+    document.getElementById('modalContainer').innerHTML = html;
+    window._supPayRefundSupplierSelect = initSearchableSelect('supPayRefundSupplierInput', supplierOpts, (val, text) => { document.getElementById('supPayRefundSupplier').value = val; });
+};
+
+window.saveSupplierPaymentRefund = async function () {
+    const supplier_id = document.getElementById('supPayRefundSupplier')?.value;
+    const amount = parseFloat(document.getElementById('supPayRefundAmount')?.value) || 0;
+    const payment_date = document.getElementById('supPayRefundDate')?.value;
+    const notes = document.getElementById('supPayRefundNotes')?.value.trim() || '';
+    const currency = document.getElementById('supPayRefundCurrency')?.value || 'SYP';
+
+    if (!supplier_id || amount <= 0 || !payment_date) {
+        showToast('جميع الحقول المطلوبة يجب ملؤها', 'error');
+        return;
+    }
+
+    try {
+        await apiFetch('/supplier-payments/refund', {
+            method: 'POST',
+            body: JSON.stringify({ supplier_id, amount, payment_date, notes, currency })
+        });
+        showToast('تم استرجاع المبلغ ✅');
+        closeModal('supPayRefundModal');
+        loadSupplierPayments();
+        if (typeof window.loadSuppliers === 'function') window.loadSuppliers();
+        if (typeof window.loadPurchases === 'function') window.loadPurchases();
+    } catch (e) {
+        showToast('حدث خطأ أثناء الاسترجاع', 'error');
         console.error(e);
     }
 };

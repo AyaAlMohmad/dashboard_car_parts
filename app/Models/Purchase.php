@@ -14,9 +14,11 @@ class Purchase extends Model
         'supplier_id',
         'part_id',
         'quantity',
+        'returned_quantity',
         'unit_price',
         'total',
         'paid',
+        'credit_used',
         'remaining',
         'status',
         'currency',
@@ -25,6 +27,8 @@ class Purchase extends Model
     ];
 
     protected $casts = [
+        'quantity' => 'integer',
+        'returned_quantity' => 'integer',
         'unit_price' => 'decimal:2',
         'total' => 'decimal:2',
         'paid' => 'decimal:2',

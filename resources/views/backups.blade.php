@@ -68,6 +68,7 @@
                 <tbody id="backupsTableBody"></tbody>
             </table>
         </div>
+        <div id="backupsPagination"></div>
     </div>
 </div>
 @endsection

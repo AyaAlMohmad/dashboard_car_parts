@@ -43,6 +43,7 @@
                 <tbody id="purchasesTableBody"></tbody>
             </table>
         </div>
+        <div id="purchasesPagination"></div>
     </div>
 </div>
 @endsection

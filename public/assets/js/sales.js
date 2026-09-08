@@ -5,14 +5,24 @@ let allParts = [];
 async function loadSales() {
     window.loadSales = loadSales;
     try {
-        const [salesData, customersData, partsData] = await Promise.all([
+        const [salesData, customersData] = await Promise.all([
             apiFetch('/sales'),
             apiFetch('/customers'),
-            apiFetch('/parts')
         ]);
         allSales = salesData.data || [];
         allCustomers = customersData.data || [];
-        allParts = partsData.data || [];
+
+        // جلب كل صفحات الأصناف لتجاوز pagination
+        let page = 1;
+        let allPartsData = [];
+        while (true) {
+            const res = await apiFetch(`/parts?page=${page}`);
+            allPartsData = allPartsData.concat(res.data || []);
+            if (page >= (res.last_page || 1)) break;
+            page++;
+            if (page > 100) break;
+        }
+        allParts = allPartsData;
         renderSales();
     } catch (e) {
         showToast('حدث خطأ أثناء تحميل البيانات', 'error');

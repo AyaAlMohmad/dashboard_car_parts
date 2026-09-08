@@ -38,6 +38,7 @@
                 <tbody id="withdrawalsTableBody"></tbody>
             </table>
         </div>
+        <div id="withdrawalsPagination"></div>
     </div>
 </div>
 @endsection

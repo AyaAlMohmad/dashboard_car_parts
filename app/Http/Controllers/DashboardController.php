@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\Part;
+use App\Models\Profit;
 use App\Models\Purchase;
 use App\Models\Sale;
 use App\Models\Supplier;
@@ -17,27 +18,22 @@ class DashboardController extends Controller
 {
     public function index(): JsonResponse
     {
-        $profitByCurrency = Invoice::selectRaw(
-            'invoices.currency,
-            SUM(invoices.total) as sales,
-            SUM((invoice_items.quantity - COALESCE(invoice_items.returned_quantity, 0))
-                * CASE WHEN invoices.currency = "USD" THEN COALESCE(parts.purchase_price_usd, 0) ELSE parts.purchase_price END
-            ) as cost'
+        $profitByCurrency = Profit::selectRaw(
+            'currency,
+            SUM(profit - returned_profit) as net_profit'
         )
-            ->join('invoice_items', 'invoices.id', '=', 'invoice_items.invoice_id')
-            ->join('parts', 'invoice_items.part_id', '=', 'parts.id')
-            ->groupBy('invoices.currency')
+            ->groupBy('currency')
             ->get()
-            ->mapWithKeys(fn ($row) => [$row->currency => (float) $row->sales - (float) $row->cost]);
+            ->mapWithKeys(fn ($row) => [$row->currency => (float) $row->net_profit]);
 
         $oldDebtPartId = Part::where('part_number', 'OLD_DEBT')->value('id') ?? 0;
 
         $stats = [
             'customers_count' => Customer::count(),
             'suppliers_count' => Supplier::count(),
-            'parts_count' => Part::count(),
-            'parts_low_stock' => Part::whereIn('status', ['منخفض', 'غير متوفر'])->count(),
-            'parts_quantity' => Part::sum('quantity'),
+            'parts_count' => Part::where('id', '!=', $oldDebtPartId)->count(),
+            'parts_low_stock' => Part::whereIn('status', ['منخفض', 'غير متوفر'])->where('id', '!=', $oldDebtPartId)->count(),
+            'parts_quantity' => Part::where('id', '!=', $oldDebtPartId)->sum('quantity'),
             'sales_total_syp' => (float) Invoice::where('currency', 'SYP')->sum('total'),
             'sales_total_usd' => (float) Invoice::where('currency', 'USD')->sum('total'),
             'sales_paid_syp' => (float) Invoice::where('currency', 'SYP')->sum('paid'),

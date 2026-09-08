@@ -40,6 +40,7 @@
                 <tbody id="customersTableBody"></tbody>
             </table>
         </div>
+        <div id="customersPagination"></div>
     </div>
 </div>
 @endsection

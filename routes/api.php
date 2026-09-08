@@ -55,6 +55,7 @@ Route::post('/invoices/settings/exchange-rate', [InvoiceController::class, 'upda
 // Payments
 Route::get('/payments', [PaymentController::class, 'index']);
 Route::post('/payments', [PaymentController::class, 'store']);
+Route::post('/payments/refund', [PaymentController::class, 'refund']);
 Route::get('/payments/{payment}', [PaymentController::class, 'show']);
 Route::delete('/payments/{payment}', [PaymentController::class, 'destroy']);
 
@@ -69,11 +70,13 @@ Route::delete('/suppliers/{supplier}', [SupplierController::class, 'destroy']);
 Route::get('/purchases', [PurchaseController::class, 'index']);
 Route::post('/purchases', [PurchaseController::class, 'store']);
 Route::get('/purchases/{purchase}', [PurchaseController::class, 'show']);
+Route::post('/purchases/{purchase}/return', [PurchaseController::class, 'returnItems']);
 Route::delete('/purchases/{purchase}', [PurchaseController::class, 'destroy']);
 
 // Supplier Payments
 Route::get('/supplier-payments', [SupplierPaymentController::class, 'index']);
 Route::post('/supplier-payments', [SupplierPaymentController::class, 'store']);
+Route::post('/supplier-payments/refund', [SupplierPaymentController::class, 'refund']);
 Route::get('/supplier-payments/{supplierPayment}', [SupplierPaymentController::class, 'show']);
 Route::delete('/supplier-payments/{supplierPayment}', [SupplierPaymentController::class, 'destroy']);
 

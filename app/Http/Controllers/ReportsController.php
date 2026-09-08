@@ -6,6 +6,7 @@ use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\Part;
 use App\Models\Payment;
+use App\Models\Profit;
 use App\Models\Purchase;
 use App\Models\Sale;
 use App\Models\Supplier;
@@ -18,36 +19,98 @@ class ReportsController extends Controller
 {
     public function summary(): JsonResponse
     {
-        $profitByCurrency = Invoice::selectRaw(
-            'invoices.currency,
-            SUM(invoices.total) as sales,
-            SUM((invoice_items.quantity - COALESCE(invoice_items.returned_quantity, 0))
-                * CASE WHEN invoices.currency = "USD" THEN COALESCE(parts.purchase_price_usd, 0) ELSE parts.purchase_price END
-            ) as cost'
+        $profitByCurrency = Profit::selectRaw(
+            'currency,
+            SUM(profit - returned_profit) as net_profit'
         )
-            ->join('invoice_items', 'invoices.id', '=', 'invoice_items.invoice_id')
-            ->join('parts', 'invoice_items.part_id', '=', 'parts.id')
-            ->groupBy('invoices.currency')
+            ->groupBy('currency')
             ->get()
-            ->mapWithKeys(fn ($row) => [$row->currency => (float) $row->sales - (float) $row->cost]);
+            ->mapWithKeys(fn ($row) => [$row->currency => (float) $row->net_profit]);
 
         $oldDebtPartId = Part::where('part_number', 'OLD_DEBT')->value('id') ?? 0;
 
+        $invoiceSums = DB::table('invoices')
+            ->select('customer_id',
+                DB::raw('SUM(CASE WHEN currency = "SYP" THEN total ELSE 0 END) as total_syp'),
+                DB::raw('SUM(CASE WHEN currency = "USD" THEN total ELSE 0 END) as total_usd'),
+                DB::raw('SUM(CASE WHEN currency = "SYP" THEN paid ELSE 0 END) as paid_syp'),
+                DB::raw('SUM(CASE WHEN currency = "USD" THEN paid ELSE 0 END) as paid_usd'),
+                DB::raw('SUM(CASE WHEN currency = "SYP" THEN remaining ELSE 0 END) as remaining_syp'),
+                DB::raw('SUM(CASE WHEN currency = "USD" THEN remaining ELSE 0 END) as remaining_usd'))
+            ->groupBy('customer_id');
+
+        $salesSums = DB::table('sales')
+            ->select('customer_id',
+                DB::raw('SUM(total) as total_syp_sales'),
+                DB::raw('SUM(remaining) as remaining_syp_sales'),
+                DB::raw('SUM(paid) as paid_syp_sales'))
+            ->groupBy('customer_id');
+
+        $customerPaymentSums = DB::table('payments')
+            ->select('customer_id',
+                DB::raw('SUM(CASE WHEN currency = "SYP" THEN amount ELSE 0 END) as payments_syp'),
+                DB::raw('SUM(CASE WHEN currency = "USD" THEN amount ELSE 0 END) as payments_usd'))
+            ->groupBy('customer_id');
+
+        $customerDebts = Customer::query()
+            ->leftJoinSub($invoiceSums, 'inv_sums', 'customers.id', '=', 'inv_sums.customer_id')
+            ->leftJoinSub($salesSums, 'sale_sums', 'customers.id', '=', 'sale_sums.customer_id')
+            ->leftJoinSub($customerPaymentSums, 'pay_sums', 'customers.id', '=', 'pay_sums.customer_id')
+            ->select(
+                DB::raw('SUM(GREATEST(0, COALESCE(inv_sums.total_syp, 0) + COALESCE(sale_sums.total_syp_sales, 0) - COALESCE(inv_sums.paid_syp, 0) - COALESCE(sale_sums.paid_syp_sales, 0) - COALESCE(pay_sums.payments_syp, 0))) as total_debts_syp'),
+                DB::raw('SUM(GREATEST(0, COALESCE(inv_sums.total_usd, 0) - COALESCE(inv_sums.paid_usd, 0) - COALESCE(pay_sums.payments_usd, 0))) as total_debts_usd')
+            )
+            ->first();
+
+        $purchaseSums = DB::table('purchases')
+            ->where('part_id', '!=', $oldDebtPartId)
+            ->select('supplier_id',
+                DB::raw('SUM(CASE WHEN currency = "SYP" THEN total ELSE 0 END) as total_syp'),
+                DB::raw('SUM(CASE WHEN currency = "USD" THEN total ELSE 0 END) as total_usd'),
+                DB::raw('SUM(CASE WHEN currency = "SYP" THEN paid ELSE 0 END) as paid_syp'),
+                DB::raw('SUM(CASE WHEN currency = "USD" THEN paid ELSE 0 END) as paid_usd'),
+                DB::raw('SUM(CASE WHEN currency = "SYP" THEN remaining ELSE 0 END) as remaining_syp'),
+                DB::raw('SUM(CASE WHEN currency = "USD" THEN remaining ELSE 0 END) as remaining_usd'))
+            ->groupBy('supplier_id');
+
+        $oldDebtPaidSums = DB::table('purchases')
+            ->where('part_id', $oldDebtPartId)
+            ->select('supplier_id',
+                DB::raw('SUM(CASE WHEN currency = "SYP" THEN paid ELSE 0 END) as old_debt_paid_syp'),
+                DB::raw('SUM(CASE WHEN currency = "USD" THEN paid ELSE 0 END) as old_debt_paid_usd'))
+            ->groupBy('supplier_id');
+
+        $supplierPaymentSums = DB::table('supplier_payments')
+            ->select('supplier_id',
+                DB::raw('SUM(CASE WHEN currency = "SYP" THEN amount ELSE 0 END) as payments_syp'),
+                DB::raw('SUM(CASE WHEN currency = "USD" THEN amount ELSE 0 END) as payments_usd'))
+            ->groupBy('supplier_id');
+
+        $supplierDebts = Supplier::query()
+            ->leftJoinSub($purchaseSums, 'pur_sums', 'suppliers.id', '=', 'pur_sums.supplier_id')
+            ->leftJoinSub($oldDebtPaidSums, 'old_pay_sums', 'suppliers.id', '=', 'old_pay_sums.supplier_id')
+            ->leftJoinSub($supplierPaymentSums, 'pay_sums', 'suppliers.id', '=', 'pay_sums.supplier_id')
+            ->select(
+                DB::raw('SUM(GREATEST(0, COALESCE(pur_sums.remaining_syp, 0) - COALESCE(pay_sums.payments_syp, 0) - COALESCE(old_pay_sums.old_debt_paid_syp, 0))) as supplier_debts_syp'),
+                DB::raw('SUM(GREATEST(0, COALESCE(pur_sums.remaining_usd, 0) - COALESCE(pay_sums.payments_usd, 0) - COALESCE(old_pay_sums.old_debt_paid_usd, 0))) as supplier_debts_usd')
+            )
+            ->first();
+
         $stats = [
-            'low_stock_parts' => Part::whereIn('status', ['منخفض', 'غير متوفر'])->count(),
-            'inventory_value' => (float) Part::selectRaw('SUM(quantity * purchase_price) as total')->value('total'),
-            'inventory_value_syp' => (float) Part::selectRaw('SUM(quantity * purchase_price) as total')->value('total'),
-            'inventory_value_usd' => (float) Part::selectRaw('SUM(quantity * purchase_price_usd) as total')->value('total'),
+            'low_stock_parts' => Part::whereIn('status', ['منخفض', 'غير متوفر'])->where('id', '!=', $oldDebtPartId)->count(),
+            'inventory_value' => (float) Part::where('id', '!=', $oldDebtPartId)->selectRaw('SUM(quantity * purchase_price) as total')->value('total'),
+            'inventory_value_syp' => (float) Part::where('id', '!=', $oldDebtPartId)->selectRaw('SUM(quantity * purchase_price) as total')->value('total'),
+            'inventory_value_usd' => (float) Part::where('id', '!=', $oldDebtPartId)->selectRaw('SUM(quantity * purchase_price_usd) as total')->value('total'),
             'payments_count' => Payment::count(),
             'sales_count' => Invoice::count(),
             'suppliers_count' => Supplier::count(),
             'purchases_count' => Purchase::count(),
-            'total_debts_syp' => (float) Invoice::where('status', 'عليه دين')->where('currency', 'SYP')->sum('remaining'),
-            'total_debts_usd' => (float) Invoice::where('status', 'عليه دين')->where('currency', 'USD')->sum('remaining'),
+            'total_debts_syp' => (float) ($customerDebts->total_debts_syp ?? 0),
+            'total_debts_usd' => (float) ($customerDebts->total_debts_usd ?? 0),
             'total_purchases_syp' => (float) Purchase::where('currency', 'SYP')->where('part_id', '!=', $oldDebtPartId)->sum('total'),
             'total_purchases_usd' => (float) Purchase::where('currency', 'USD')->where('part_id', '!=', $oldDebtPartId)->sum('total'),
-            'supplier_debts_syp' => (float) Purchase::where('status', 'علينا دين')->where('currency', 'SYP')->where('part_id', '!=', $oldDebtPartId)->sum('remaining'),
-            'supplier_debts_usd' => (float) Purchase::where('status', 'علينا دين')->where('currency', 'USD')->where('part_id', '!=', $oldDebtPartId)->sum('remaining'),
+            'supplier_debts_syp' => (float) ($supplierDebts->supplier_debts_syp ?? 0),
+            'supplier_debts_usd' => (float) ($supplierDebts->supplier_debts_usd ?? 0),
             'total_withdrawals_syp' => (float) Withdrawal::where('currency', 'SYP')->sum('amount'),
             'total_withdrawals_usd' => (float) Withdrawal::where('currency', 'USD')->sum('amount'),
             'warehouse_profit_syp' => $profitByCurrency['SYP'] ?? 0,
@@ -59,11 +122,37 @@ class ReportsController extends Controller
 
     public function debtors(): JsonResponse
     {
-        $customers = Customer::where('status', 'مدين')
+        $invoiceSums = DB::table('invoices')
+            ->select('customer_id',
+                DB::raw('SUM(CASE WHEN currency = "SYP" THEN total ELSE 0 END) as total_syp'),
+                DB::raw('SUM(CASE WHEN currency = "USD" THEN total ELSE 0 END) as total_usd'),
+                DB::raw('SUM(CASE WHEN currency = "SYP" THEN paid ELSE 0 END) as paid_syp'),
+                DB::raw('SUM(CASE WHEN currency = "USD" THEN paid ELSE 0 END) as paid_usd'),
+                DB::raw('SUM(CASE WHEN currency = "SYP" THEN remaining ELSE 0 END) as remaining_syp'),
+                DB::raw('SUM(CASE WHEN currency = "USD" THEN remaining ELSE 0 END) as remaining_usd'))
+            ->groupBy('customer_id');
+
+        $salesSums = DB::table('sales')
+            ->select('customer_id',
+                DB::raw('SUM(total) as total_syp_sales'),
+                DB::raw('SUM(remaining) as remaining_syp_sales'),
+                DB::raw('SUM(paid) as paid_syp_sales'))
+            ->groupBy('customer_id');
+
+        $paymentSums = DB::table('payments')
+            ->select('customer_id',
+                DB::raw('SUM(CASE WHEN currency = "SYP" THEN amount ELSE 0 END) as payments_syp'),
+                DB::raw('SUM(CASE WHEN currency = "USD" THEN amount ELSE 0 END) as payments_usd'))
+            ->groupBy('customer_id');
+
+        $customers = Customer::query()
+            ->leftJoinSub($invoiceSums, 'inv_sums', 'customers.id', '=', 'inv_sums.customer_id')
+            ->leftJoinSub($salesSums, 'sale_sums', 'customers.id', '=', 'sale_sums.customer_id')
+            ->leftJoinSub($paymentSums, 'pay_sums', 'customers.id', '=', 'pay_sums.customer_id')
             ->select('customers.*',
-                DB::raw('(SELECT SUM(remaining) FROM invoices WHERE invoices.customer_id = customers.id AND invoices.currency = "SYP") as total_debt_syp'),
-                DB::raw('(SELECT SUM(remaining) FROM invoices WHERE invoices.customer_id = customers.id AND invoices.currency = "USD") as total_debt_usd'),
-                DB::raw('(SELECT SUM(remaining) FROM invoices WHERE invoices.customer_id = customers.id) as total_debt'))
+                DB::raw('GREATEST(0, COALESCE(inv_sums.total_syp, 0) + COALESCE(sale_sums.total_syp_sales, 0) - COALESCE(inv_sums.paid_syp, 0) - COALESCE(sale_sums.paid_syp_sales, 0) - COALESCE(pay_sums.payments_syp, 0)) as total_debt_syp'),
+                DB::raw('GREATEST(0, COALESCE(inv_sums.total_usd, 0) - COALESCE(inv_sums.paid_usd, 0) - COALESCE(pay_sums.payments_usd, 0)) as total_debt_usd'))
+            ->havingRaw('total_debt_syp > 0 OR total_debt_usd > 0')
             ->latest()
             ->get();
 
@@ -74,11 +163,38 @@ class ReportsController extends Controller
     {
         $oldDebtPartId = (int) (Part::where('part_number', 'OLD_DEBT')->value('id') ?? 0);
 
-        $suppliers = Supplier::where('status', 'علينا')
+        $purchaseSums = DB::table('purchases')
+            ->where('part_id', '!=', $oldDebtPartId)
+            ->select('supplier_id',
+                DB::raw('SUM(CASE WHEN currency = "SYP" THEN total ELSE 0 END) as total_syp'),
+                DB::raw('SUM(CASE WHEN currency = "USD" THEN total ELSE 0 END) as total_usd'),
+                DB::raw('SUM(CASE WHEN currency = "SYP" THEN paid ELSE 0 END) as paid_syp'),
+                DB::raw('SUM(CASE WHEN currency = "USD" THEN paid ELSE 0 END) as paid_usd'),
+                DB::raw('SUM(CASE WHEN currency = "SYP" THEN remaining ELSE 0 END) as remaining_syp'),
+                DB::raw('SUM(CASE WHEN currency = "USD" THEN remaining ELSE 0 END) as remaining_usd'))
+            ->groupBy('supplier_id');
+
+        $oldDebtPaidSums = DB::table('purchases')
+            ->where('part_id', $oldDebtPartId)
+            ->select('supplier_id',
+                DB::raw('SUM(CASE WHEN currency = "SYP" THEN paid ELSE 0 END) as old_debt_paid_syp'),
+                DB::raw('SUM(CASE WHEN currency = "USD" THEN paid ELSE 0 END) as old_debt_paid_usd'))
+            ->groupBy('supplier_id');
+
+        $paymentSums = DB::table('supplier_payments')
+            ->select('supplier_id',
+                DB::raw('SUM(CASE WHEN currency = "SYP" THEN amount ELSE 0 END) as payments_syp'),
+                DB::raw('SUM(CASE WHEN currency = "USD" THEN amount ELSE 0 END) as payments_usd'))
+            ->groupBy('supplier_id');
+
+        $suppliers = Supplier::query()
+            ->leftJoinSub($purchaseSums, 'pur_sums', 'suppliers.id', '=', 'pur_sums.supplier_id')
+            ->leftJoinSub($oldDebtPaidSums, 'old_pay_sums', 'suppliers.id', '=', 'old_pay_sums.supplier_id')
+            ->leftJoinSub($paymentSums, 'pay_sums', 'suppliers.id', '=', 'pay_sums.supplier_id')
             ->select('suppliers.*',
-                DB::raw('(SELECT SUM(remaining) FROM purchases WHERE purchases.supplier_id = suppliers.id AND purchases.currency = "SYP" AND purchases.part_id != ' . $oldDebtPartId . ') as total_debt_syp'),
-                DB::raw('(SELECT SUM(remaining) FROM purchases WHERE purchases.supplier_id = suppliers.id AND purchases.currency = "USD" AND purchases.part_id != ' . $oldDebtPartId . ') as total_debt_usd'),
-                DB::raw('(SELECT SUM(remaining) FROM purchases WHERE purchases.supplier_id = suppliers.id AND purchases.part_id != ' . $oldDebtPartId . ') as total_debt'))
+                DB::raw('GREATEST(0, COALESCE(pur_sums.remaining_syp, 0) - COALESCE(pay_sums.payments_syp, 0) - COALESCE(old_pay_sums.old_debt_paid_syp, 0)) as total_debt_syp'),
+                DB::raw('GREATEST(0, COALESCE(pur_sums.remaining_usd, 0) - COALESCE(pay_sums.payments_usd, 0) - COALESCE(old_pay_sums.old_debt_paid_usd, 0)) as total_debt_usd'))
+            ->havingRaw('total_debt_syp > 0 OR total_debt_usd > 0')
             ->latest()
             ->get();
 
@@ -111,20 +227,16 @@ class ReportsController extends Controller
 
     public function monthlyProfit(): JsonResponse
     {
-        $sales = Invoice::selectRaw(
-            'DATE_FORMAT(invoices.sale_date, "%Y-%m") as month,
-            COUNT(DISTINCT invoices.id) as invoices,
-            SUM(invoices.total) as total_sales,
-            SUM(CASE WHEN invoices.currency = "SYP" THEN invoices.total ELSE 0 END) as total_sales_syp,
-            SUM(CASE WHEN invoices.currency = "USD" THEN invoices.total ELSE 0 END) as total_sales_usd,
-            SUM((invoice_items.quantity - COALESCE(invoice_items.returned_quantity, 0))
-                * CASE WHEN invoices.currency = "USD" THEN COALESCE(parts.purchase_price_usd, 0) ELSE parts.purchase_price END
-            ) as cost,
-            SUM(CASE WHEN invoices.currency = "SYP" THEN (invoice_items.quantity - COALESCE(invoice_items.returned_quantity, 0)) * COALESCE(parts.purchase_price, 0) ELSE 0 END) as cost_syp,
-            SUM(CASE WHEN invoices.currency = "USD" THEN (invoice_items.quantity - COALESCE(invoice_items.returned_quantity, 0)) * COALESCE(parts.purchase_price_usd, 0) ELSE 0 END) as cost_usd'
+        $sales = Profit::selectRaw(
+            'DATE_FORMAT(sale_date, "%Y-%m") as month,
+            COUNT(DISTINCT invoice_id) as invoices,
+            SUM(quantity * unit_price - returned_quantity * unit_price) as total_sales,
+            SUM(CASE WHEN currency = "SYP" THEN quantity * unit_price - returned_quantity * unit_price ELSE 0 END) as total_sales_syp,
+            SUM(CASE WHEN currency = "USD" THEN quantity * unit_price - returned_quantity * unit_price ELSE 0 END) as total_sales_usd,
+            SUM(quantity * purchase_price - returned_quantity * purchase_price) as cost,
+            SUM(CASE WHEN currency = "SYP" THEN quantity * purchase_price - returned_quantity * purchase_price ELSE 0 END) as cost_syp,
+            SUM(CASE WHEN currency = "USD" THEN quantity * purchase_price - returned_quantity * purchase_price ELSE 0 END) as cost_usd'
         )
-            ->join('invoice_items', 'invoices.id', '=', 'invoice_items.invoice_id')
-            ->join('parts', 'invoice_items.part_id', '=', 'parts.id')
             ->groupBy('month')
             ->orderBy('month', 'desc')
             ->get()

@@ -9,7 +9,10 @@
             <h1>🏦 مدفوعات الموردين</h1>
             <span class="subtitle">تسجيل دفعات الموردين</span>
         </div>
-        <button class="btn btn-success" onclick="openSupplierPaymentModal()">💵 دفع للمورد</button>
+        <div>
+            <button class="btn btn-success" onclick="openSupplierPaymentModal()">💵 دفع للمورد</button>
+            <button class="btn btn-warning" onclick="openSupplierPaymentRefundModal()">↩️ استرجاع مبلغ</button>
+        </div>
     </div>
     <div class="table-container">
         <div class="table-toolbar">
@@ -38,6 +41,7 @@
                 <tbody id="supplierPaymentsTableBody"></tbody>
             </table>
         </div>
+        <div id="supplierPaymentsPagination"></div>
     </div>
 </div>
 @endsection

@@ -5,17 +5,43 @@ let exchangeRate = 1;
 let invoiceItems = [];
 let selectedCurrency = 'SYP';
 let _cachedInvoiceState = null;
+let invoicesPage = 1;
+const invoicesPerPage = 20;
 
 async function loadInvoices() {
     try {
-        const [invData, custData, partsData] = await Promise.all([
-            apiFetch('/invoices'),
-            apiFetch('/customers'),
-            apiFetch('/parts'),
-        ]);
-        allInvoices = invData.data || [];
-        allCustomers = custData.data || [];
-        allParts = partsData.data || [];
+        let page = 1;
+        let allInvData = [];
+        while (true) {
+            const res = await apiFetch(`/invoices?page=${page}`);
+            allInvData = allInvData.concat(res.data || []);
+            if (page >= (res.last_page || 1)) break;
+            page++;
+            if (page > 100) break;
+        }
+        allInvoices = allInvData;
+
+        let cPage = 1;
+        let allCust = [];
+        while (true) {
+            const res = await apiFetch(`/customers?page=${cPage}`);
+            allCust = allCust.concat(res.data || []);
+            if (cPage >= (res.last_page || 1)) break;
+            cPage++;
+            if (cPage > 100) break;
+        }
+        allCustomers = allCust;
+
+        let pPage = 1;
+        let allPartsData = [];
+        while (true) {
+            const res = await apiFetch(`/parts?page=${pPage}`);
+            allPartsData = allPartsData.concat(res.data || []);
+            if (pPage >= (res.last_page || 1)) break;
+            pPage++;
+            if (pPage > 100) break;
+        }
+        allParts = allPartsData;
         renderInvoices();
     } catch (e) {
         showToast('حدث خطأ أثناء تحميل البيانات', 'error');
@@ -56,12 +82,19 @@ function renderInvoices() {
         const itemNames = g.items.flatMap(inv => (inv.items || []).map(i => (i.part?.name || '').toLowerCase())).join(' ');
         return cname.includes(search) || itemNames.includes(search) || String(g.first.id).includes(search);
     });
+
+    const totalPages = Math.ceil(filtered.length / invoicesPerPage);
+    if (invoicesPage > totalPages) invoicesPage = totalPages || 1;
+    const start = (invoicesPage - 1) * invoicesPerPage;
+    const pageItems = filtered.slice(start, start + invoicesPerPage);
+
     const tbody = document.getElementById('invoicesTableBody');
-    if (filtered.length === 0) {
+    if (pageItems.length === 0) {
         tbody.innerHTML = '<tr><td colspan="12"><div class="empty-state">🧾 لا توجد فواتير</div></td></tr>';
+        renderInvoicesPagination(0);
         return;
     }
-    tbody.innerHTML = filtered.map((g) => {
+    tbody.innerHTML = pageItems.map((g) => {
         const curr = g.first.currency === 'USD' ? '$' : 'ل.س';
         const totalParts = g.items.reduce((sum, inv) => sum + (inv.items || []).length, 0);
         const countText = totalParts > 1 ? `${totalParts} قطع` : 'قطعة';
@@ -84,6 +117,39 @@ function renderInvoices() {
             </td>
         </tr>`;
     }).join('');
+    renderInvoicesPagination(filtered.length);
+}
+
+function renderInvoicesPagination(total) {
+    const totalPages = Math.ceil(total / invoicesPerPage);
+    const container = document.getElementById('invoicesPagination');
+    if (!container) return;
+    if (totalPages <= 1) { container.innerHTML = ''; return; }
+    let html = '<div class="pagination" style="display:flex;justify-content:center;align-items:center;gap:6px;margin-top:16px;flex-wrap:wrap;">';
+    html += `<button class="btn btn-outline btn-xs" onclick="changeInvoicesPage(${invoicesPage - 1})" ${invoicesPage === 1 ? 'disabled' : ''}>← السابق</button>`;
+    for (let i = 1; i <= totalPages; i++) {
+        if (i === invoicesPage) { html += `<span class="btn btn-primary btn-xs" style="cursor:default">${i}</span>`; }
+        else if (i === 1 || i === totalPages || (i >= invoicesPage - 1 && i <= invoicesPage + 1)) { html += `<button class="btn btn-outline btn-xs" onclick="changeInvoicesPage(${i})">${i}</button>`; }
+        else if (i === invoicesPage - 2 || i === invoicesPage + 2) { html += `<span style="padding:4px 8px;">…</span>`; }
+    }
+    html += `<button class="btn btn-outline btn-xs" onclick="changeInvoicesPage(${invoicesPage + 1})" ${invoicesPage === totalPages ? 'disabled' : ''}>التالي →</button>`;
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+window.changeInvoicesPage = function (page) {
+    const search = (document.getElementById('invoiceSearch')?.value || '').toLowerCase();
+    const groups = groupInvoices();
+    let filtered = groups.filter((g) => {
+        const cname = (g.first.customer?.name || '').toLowerCase();
+        const itemNames = g.items.flatMap(inv => (inv.items || []).map(i => (i.part?.name || '').toLowerCase())).join(' ');
+        return cname.includes(search) || itemNames.includes(search) || String(g.first.id).includes(search);
+    });
+    const totalPages = Math.ceil(filtered.length / invoicesPerPage);
+    if (page < 1 || page > totalPages) return;
+    invoicesPage = page;
+    renderInvoices();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function formatNumber(n) {
@@ -92,6 +158,8 @@ function formatNumber(n) {
 
 window.openInvoiceModal = function () {
     invoiceItems = [];
+    window._invSettleChanged = false;
+    _cachedInvoiceState = null;
     selectedCurrency = 'SYP';
     const customerOpts = allCustomers.map((c) => ({ value: String(c.id), text: `${c.name} - ${c.phone || ''}` }));
     const today = new Date().toISOString().split('T')[0];
@@ -141,6 +209,7 @@ window.openInvoiceModal = function () {
                     </div>
 
                     <div class="form-group" style="margin-top:12px;"><label>المبلغ المدفوع</label><input type="number" id="invPaid" value="0" step="0.01" oninput="updateInvoiceRemaining()"></div>
+                    <div class="form-group" id="invSettleGroup" style="margin-top:12px;display:none;"><label id="invSettleLabel">تسديد من رصيد زائد قديم</label><input type="number" id="invSettle" value="0" step="0.01" oninput="window._invSettleChanged = true; updateInvoiceRemaining()"></div>
                     <div class="form-group"><label>المتبقي</label><input id="invRemaining" readonly style="background:#fef3c7;font-weight:700;color:var(--danger);"></div>
                     <div class="form-group"><label>الدين المخصوم</label><input id="invDebt" readonly style="background:#fee2e2;font-weight:700;color:var(--danger);"></div>
                     <div class="form-group"><label>مبلغ الزيادة</label><input id="invOver" readonly style="background:#d1fae5;font-weight:700;color:var(--success);"></div>
@@ -155,9 +224,30 @@ window.openInvoiceModal = function () {
     window._invCustomerSelect = initSearchableSelect(
         'invCustomerInput',
         customerOpts,
-        (val, text) => { document.getElementById('invCustomer').value = val; }
+        (val, text) => { document.getElementById('invCustomer').value = val; window._invSettleChanged = false; updateInvoiceCustomerBalance(val); }
     );
 };
+
+function updateInvoiceCustomerBalance(customerId) {
+    const customer = allCustomers.find(c => c.id == customerId);
+    const group = document.getElementById('invSettleGroup');
+    const input = document.getElementById('invSettle');
+    const label = document.getElementById('invSettleLabel');
+    if (!customer || !group || !input || !label) return;
+    const currency = document.getElementById('invCurrency')?.value || 'SYP';
+    const field = currency === 'USD' ? 'balance_usd' : 'balance_syp';
+    const balance = parseFloat(customer[field] || 0);
+    if (balance > 0) {
+        group.style.display = 'block';
+        input.max = balance.toFixed(2);
+        label.textContent = `تسديد من رصيد زائد قديم (متاح: ${formatNumber(balance)})`;
+    } else {
+        group.style.display = 'none';
+        input.value = 0;
+        input.max = 0;
+    }
+    updateInvoiceRemaining();
+}
 
 function cacheInvoiceModalState() {
     _cachedInvoiceState = {
@@ -167,6 +257,7 @@ function cacheInvoiceModalState() {
         currency: document.getElementById('invCurrency')?.value || 'SYP',
         notes: document.getElementById('invNotes')?.value || '',
         paid: document.getElementById('invPaid')?.value || '0',
+        settle: document.getElementById('invSettle')?.value || '0',
         items: [...invoiceItems],
     };
 }
@@ -187,8 +278,12 @@ function restoreInvoiceModalState() {
     if (invNotes) invNotes.value = s.notes;
     const invPaid = document.getElementById('invPaid');
     if (invPaid) invPaid.value = s.paid;
+    const invSettle = document.getElementById('invSettle');
+    if (invSettle) invSettle.value = s.settle || '0';
     invoiceItems = [...s.items];
     renderInvoiceItems();
+    window._invSettleChanged = false;
+    if (s.customerId) updateInvoiceCustomerBalance(s.customerId);
     updateInvoiceRemaining();
 }
 
@@ -331,8 +426,17 @@ function renderInvoiceItems() {
 function updateInvoiceRemaining() {
     const total = invoiceItems.reduce((sum, it) => sum + it.total, 0);
     const paid = parseFloat(document.getElementById('invPaid')?.value) || 0;
-    const remaining = Math.max(0, total - paid);
-    const over = Math.max(0, paid - total);
+    const settleInput = document.getElementById('invSettle');
+    const balanceLimit = parseFloat(settleInput?.max) || 0;
+    const shortfall = Math.max(0, total - paid);
+    const maxSettle = Math.min(balanceLimit, shortfall);
+    const currentSettle = parseFloat(settleInput?.value) || 0;
+    let settle = (window._invSettleChanged && currentSettle > 0) ? currentSettle : maxSettle;
+    if (settle > maxSettle) settle = maxSettle;
+    if (settleInput) settleInput.value = settle.toFixed(2);
+    const effective = paid + settle;
+    const remaining = Math.max(0, total - effective);
+    const over = Math.max(0, effective - total);
     const rem = document.getElementById('invRemaining');
     const debtEl = document.getElementById('invDebt');
     const overEl = document.getElementById('invOver');
@@ -358,6 +462,8 @@ window.saveInvoice = async function () {
         return;
     }
 
+    const settle_credit = parseFloat(document.getElementById('invSettle')?.value) || 0;
+
     try {
         await apiFetch('/invoices', {
             method: 'POST',
@@ -365,6 +471,7 @@ window.saveInvoice = async function () {
                 customer_id,
                 sale_date,
                 paid,
+                settle_credit,
                 currency,
                 notes,
                 items: invoiceItems.map(it => ({ part_id: it.part_id, quantity: it.quantity, unit_price: it.unit_price }))
@@ -388,9 +495,8 @@ window.viewInvoice = function (id) {
     const total = invoices.reduce((s, i) => s + parseFloat(i.total || 0), 0);
     const remaining = invoices.reduce((s, i) => s + parseFloat(i.remaining || 0), 0);
     const credit = invoices.reduce((s, i) => s + parseFloat(i.credit_used || 0), 0);
-    const debt = invoices.reduce((s, i) => s + parseFloat(i.debt || 0), 0);
-    const over = invoices.reduce((s, i) => s + Math.max(0, parseFloat(i.paid || 0) + parseFloat(i.credit_used || 0) - parseFloat(i.debt || 0) - parseFloat(i.total || 0)), 0);
-    const paid = total - remaining + over;
+    const paid = invoices.reduce((s, i) => s + parseFloat(i.paid || 0), 0);
+    const creditNote = (credit > 0 && remaining === 0) ? `<div style="color:var(--success);margin:8px 0;">✅ تم خصم ${formatCurrency(credit, curr)} من رصيد قديم والفاتورة أصبحت مسددة</div>` : '';
     const itemsHtml = invoices.flatMap(inv => inv.items || []).map(it => `<tr><td>${it.part?.name || '؟'}</td><td>${it.quantity}</td><td>${formatCurrency(it.unit_price, curr)}</td><td>${formatCurrency(it.total, curr)}</td></tr>`).join('');
     const first = invoices[0];
 
@@ -405,9 +511,11 @@ window.viewInvoice = function (id) {
             <thead><tr><th>القطعة</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th></tr></thead>
             <tbody>${itemsHtml || '<tr><td colspan="4" style="text-align:center;">لا توجد قطع</td></tr>'}</tbody>
         </table>
+        ${creditNote}
         <div style="margin-top:12px;text-align:left;font-weight:bold;">
             <div>الإجمالي: ${formatCurrency(total, curr)}</div>
-            <div>المدفوع: ${formatCurrency(paid, curr)}</div>
+            <div>رصيد قديم زائد: ${formatCurrency(credit, curr)}</div>
+            <div>المبلغ المدفوع حالياً: ${formatCurrency(paid, curr)}</div>
             <div>المتبقي: ${formatCurrency(remaining, curr)}</div>
         </div>
     `);
