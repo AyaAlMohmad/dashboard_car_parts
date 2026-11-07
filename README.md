@@ -1,47 +1,47 @@
-# نظام إدارة متجر قطع السيارات | Car Parts Dashboard
+# Car Parts Store Management System | Car Parts Dashboard
 
-تطبيق ويب لإدارة العمليات اليومية لمتجر قطع السيارات، بواجهة عربية من اليمين إلى اليسار (RTL). يجمع إدارة المخزون والعملاء والموردين والفواتير والمدفوعات والتقارير في لوحة تحكم واحدة، مع دعم الليرة السورية والدولار الأمريكي.
+A web application for managing the daily operations of a car parts store, featuring an Arabic right-to-left (RTL) interface. It combines inventory, customers, suppliers, invoices, payments, and reports into a single dashboard, with support for the Syrian Pound (SYP) and the US Dollar (USD).
 
-## المميزات
+## Features
 
-- **لوحة التحكم:** عرض ملخصات النشاط وتنبيهات المخزون.
-- **المخزون والفئات:** إدارة قطع السيارات وتصنيفاتها وأسعارها وكمياتها وحالات توفرها.
-- **العملاء:** إدارة بيانات العملاء وأرصدتهم وحالات المديونية.
-- **الموردون:** متابعة بيانات الموردين والأرصدة المستحقة لهم أو عليهم.
-- **المبيعات والفواتير:** إنشاء فواتير متعددة الأصناف، ومتابعة المدفوع والمتبقي، وتسجيل مرتجعات الفواتير.
-- **المشتريات:** تسجيل المشتريات من الموردين وإرجاع أصناف منها.
-- **المدفوعات:** تسجيل تسديدات العملاء ومدفوعات الموردين وعمليات رد المبالغ.
-- **السحوبات:** تسجيل السحوبات المالية ومتابعتها.
-- **العملات:** التعامل بالليرة السورية (SYP) والدولار الأمريكي (USD)، وضبط سعر الصرف للفواتير.
-- **التقارير:** ملخصات مالية، وتقارير المدينين والدائنين والمخزون والمبيعات والأرباح الشهرية.
-- **التصدير والنسخ الاحتياطية:** تصدير الجداول إلى Excel، وإنشاء نسخ احتياطية وتنزيلها، وجدولتها وإرسالها بالبريد الإلكتروني بعد إعداد SMTP.
+- **Dashboard:** Activity summaries and inventory alerts.
+- **Inventory & Categories:** Manage car parts, categories, prices, quantities, and availability status.
+- **Customers:** Manage customer data, balances, and debt status.
+- **Suppliers:** Track supplier data and amounts owed to or from them.
+- **Sales & Invoices:** Create multi-item invoices, track paid and remaining amounts, and record invoice returns.
+- **Purchases:** Record purchases from suppliers and return purchased items.
+- **Payments:** Record customer payments, supplier payments, and refunds.
+- **Withdrawals:** Record and track financial withdrawals.
+- **Currencies:** Work in Syrian Pound (SYP) and US Dollar (USD), with an exchange rate setting for invoices.
+- **Reports:** Financial summaries, debtor/creditor reports, inventory, sales, and monthly profit reports.
+- **Export & Backups:** Export tables to Excel, create and download backups, schedule them, and send them by email after configuring SMTP.
 
-## التقنيات المستخدمة
+## Tech Stack
 
-| المكوّن | التقنية |
+| Component | Technology |
 | --- | --- |
-| الخادم | PHP 8.3+ وLaravel 13 |
-| الواجهة | Blade وJavaScript وCSS، مع دعم RTL |
-| قاعدة البيانات | MySQL / MariaDB |
-| بناء الأصول | Vite 8 وTailwind CSS 4 |
-| ملفات Excel | Laravel Excel (`maatwebsite/excel`) |
-| الاختبارات | PHPUnit 12 |
+| Backend | PHP 8.3+ and Laravel 13 |
+| Frontend | Blade, JavaScript, and CSS, with RTL support |
+| Database | MySQL / MariaDB |
+| Asset bundling | Vite 8 and Tailwind CSS 4 |
+| Excel files | Laravel Excel (`maatwebsite/excel`) |
+| Tests | PHPUnit 12 |
 
-## متطلبات التشغيل
+## Requirements
 
-- PHP 8.3 أو أحدث، مع الإضافات المطلوبة بواسطة Composer، ومنها مشغّل MySQL.
+- PHP 8.3 or later, with the extensions required by Composer, including the MySQL driver.
 - Composer.
-- MySQL أو MariaDB، وقاعدة بيانات مخصصة للمشروع.
-- Node.js متوافق مع Vite 8، مثل Node.js 22.12+، وnpm.
-- Git لتنزيل المستودع.
+- MySQL or MariaDB, with a dedicated database for the project.
+- Node.js compatible with Vite 8, such as Node.js 22.12+, and npm.
+- Git for cloning the repository.
 
-يمكن استخدام Laragon للتشغيل المحلي على Windows.
+Laragon can be used for local development on Windows.
 
-> **مهم:** ملف `.env.example` الافتراضي يستخدم SQLite، لكن بعض ملفات الترحيل الحالية تحتوي على أوامر خاصة بـ MySQL مثل `ALTER TABLE ... MODIFY`. اضبط الاتصال على MySQL قبل تنفيذ الترحيلات.
+> **Important:** The default `.env.example` uses SQLite, but some existing migration files contain MySQL-specific statements such as `ALTER TABLE ... MODIFY`. Configure the connection to use MySQL before running the migrations.
 
-## التثبيت والتشغيل محليًا
+## Installation & Local Setup
 
-### 1. تنزيل المشروع وتثبيت اعتماديات PHP
+### 1. Clone the repository and install PHP dependencies
 
 ```bash
 git clone https://github.com/AyaAlMohmad/dashboard_car_parts.git
@@ -49,17 +49,17 @@ cd dashboard_car_parts
 composer install
 ```
 
-### 2. إعداد البيئة
+### 2. Configure the environment
 
-انسخ `.env.example` إلى `.env`:
+Copy `.env.example` to `.env`:
 
 ```bash
 cp .env.example .env
 ```
 
-في موجه أوامر Windows (CMD)، استخدم `copy .env.example .env` بدلًا من `cp`.
+On Windows Command Prompt (CMD), use `copy .env.example .env` instead of `cp`.
 
-أنشئ قاعدة بيانات فارغة باسم `dashboard_car_parts`، ثم عدّل إعدادات `.env` بما يناسب بيئتك:
+Create an empty database named `dashboard_car_parts`, then update the `.env` settings to match your environment:
 
 ```dotenv
 APP_NAME="Car Parts Dashboard"
@@ -75,92 +75,92 @@ DB_USERNAME=your_database_user
 DB_PASSWORD=your_database_password
 ```
 
-استبدل بيانات الاتصال بالقيم المحلية الفعلية، ولا ترفع ملف `.env` إلى المستودع.
+Replace the connection values with your actual local credentials, and never commit the `.env` file to the repository.
 
-### 3. تهيئة التطبيق وقاعدة البيانات
+### 3. Initialize the application and database
 
-نفّذ الأوامر التالية على قاعدة البيانات المخصصة للمشروع:
+Run the following commands against the project's database:
 
 ```bash
 php artisan key:generate
 php artisan migrate
 ```
 
-### 4. تثبيت اعتماديات الواجهة وبناء الأصول
+### 4. Install frontend dependencies and build assets
 
 ```bash
 npm install --ignore-scripts
 npm run build
 ```
 
-### 5. تشغيل التطبيق
+### 5. Run the application
 
 ```bash
 php artisan serve
 ```
 
-افتح العنوان الذي يظهر في الطرفية، وعادةً يكون `http://localhost:8000`.
+Open the URL shown in the terminal, typically `http://localhost:8000`.
 
-لتطوير الأصول مع إعادة البناء أثناء التعديل، شغّل الأمر التالي في طرفية منفصلة:
+For frontend development with automatic rebuilds, run the following in a separate terminal:
 
 ```bash
 npm run dev
 ```
 
-عند استخدام Laragon أو خادم ويب آخر، اجعل جذر الموقع يشير إلى مجلد `public/`، وتأكد من قابلية الكتابة في `storage/` و`bootstrap/cache/`.
+When using Laragon or another web server, point the site root to the `public/` directory, and make sure `storage/` and `bootstrap/cache/` are writable.
 
-## النسخ الاحتياطية والجدولة
+## Backups & Scheduling
 
-تتوفر إدارة النسخ الاحتياطية وجداولها وإعدادات البريد من صفحة **النسخ الاحتياطية** في التطبيق.
+Backup management, schedules, and email settings are available from the **Backups** page in the application.
 
-لتفعيل المهام المجدولة محليًا، اترك الأمر التالي قيد التشغيل في طرفية منفصلة:
+To enable scheduled tasks locally, keep the following command running in a separate terminal:
 
 ```bash
 php artisan schedule:work
 ```
 
-الجدولة المعرفة في المشروع تشمل:
+The schedules defined in the project include:
 
-- إنشاء نسخة احتياطية يوميًا عند الساعة **02:00** بحسب المنطقة الزمنية للتطبيق.
-- فحص جداول النسخ الاحتياطية التي يحددها المستخدم كل دقيقة.
+- Creating a backup daily at **02:00** according to the application's timezone.
+- Checking user-defined backup schedules every minute.
 
-يمكن إنشاء نسخة احتياطية يدويًا بالأمر:
+You can create a manual backup with:
 
 ```bash
 php artisan backup:database
 ```
 
-في بيئة الخادم، اضبط مجدول النظام لتنفيذ `php artisan schedule:run` كل دقيقة. أما ملفات `start-scheduler.bat` و`start-scheduler.vbs` المرفقة فتحتوي على مسارات محلية خاصة ببيئة Windows؛ راجعها وعدّلها لتناسب جهازك قبل استخدامها.
+On a production server, configure the system scheduler to run `php artisan schedule:run` every minute. The included `start-scheduler.bat` and `start-scheduler.vbs` files contain Windows-specific local paths; review and adjust them for your machine before use.
 
-## هيكل المشروع
+## Project Structure
 
 ```text
-app/Http/Controllers/   منطق المخزون والفواتير والمدفوعات والتقارير
-app/Models/             نماذج البيانات والعلاقات
-app/Console/Commands/   أوامر النسخ الاحتياطي والجدولة
-database/migrations/   إنشاء الجداول وتحديث بنيتها
-database/seeders/      مولدات البيانات التجريبية
-resources/views/       صفحات الواجهة وقوالب Blade
-public/assets/         ملفات CSS وJavaScript المستخدمة في الواجهة
-routes/web.php         مسارات الصفحات
-routes/api.php         واجهات API للعمليات والتقارير
-routes/console.php     أوامر الطرفية والمهام المجدولة
-tests/                 اختبارات التطبيق
+app/Http/Controllers/   Inventory, invoices, payments, and reports logic
+app/Models/             Data models and relationships
+app/Console/Commands/   Backup and scheduling commands
+database/migrations/    Table creation and schema updates
+database/seeders/       Demo data generators
+resources/views/        Pages and Blade templates
+public/assets/          CSS and JavaScript files used by the interface
+routes/web.php          Page routes
+routes/api.php          API endpoints for operations and reports
+routes/console.php      Console commands and scheduled tasks
+tests/                  Application tests
 ```
 
-## الاختبارات
+## Testing
 
-بعد إعداد بيئة اختبار منفصلة، يمكن تشغيل الاختبارات بالأمر:
+After setting up a separate testing environment, run the test suite with:
 
 ```bash
 composer test
 ```
 
-لا تستخدم قاعدة بيانات التشغيل الفعلية للاختبارات أو البيانات التجريبية.
+Do not use your production/operational database for tests or demo data.
 
-## ملاحظات قبل النشر
+## Notes Before Deployment
 
-- المسارات الحالية لا تتضمن نظام تسجيل دخول أو حماية بصلاحيات المستخدمين؛ أضف المصادقة والتفويض قبل إتاحة التطبيق على الإنترنت.
-- اضبط `APP_ENV=production` و`APP_DEBUG=false` واستخدم HTTPS عند النشر.
-- احفظ بيانات اتصال قاعدة البيانات والبريد في إعدادات آمنة، ولا تضف الأسرار أو النسخ الاحتياطية إلى Git.
-- احتفظ بنسخ احتياطية في مكان آمن خارج الخادم، وتحقق من إمكانية استعادتها دوريًا.
+- The current routes do not include authentication or user-permission protection; add authentication and authorization before exposing the application online.
+- Set `APP_ENV=production` and `APP_DEBUG=false`, and use HTTPS when deploying.
+- Store database and mail credentials in secure configuration, and never add secrets or backup files to Git.
+- Keep backups in a secure location outside the server, and verify periodically that they can be restored.
