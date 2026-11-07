@@ -1,58 +1,166 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# نظام إدارة متجر قطع السيارات | Car Parts Dashboard
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+تطبيق ويب لإدارة العمليات اليومية لمتجر قطع السيارات، بواجهة عربية من اليمين إلى اليسار (RTL). يجمع إدارة المخزون والعملاء والموردين والفواتير والمدفوعات والتقارير في لوحة تحكم واحدة، مع دعم الليرة السورية والدولار الأمريكي.
 
-## About Laravel
+## المميزات
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+- **لوحة التحكم:** عرض ملخصات النشاط وتنبيهات المخزون.
+- **المخزون والفئات:** إدارة قطع السيارات وتصنيفاتها وأسعارها وكمياتها وحالات توفرها.
+- **العملاء:** إدارة بيانات العملاء وأرصدتهم وحالات المديونية.
+- **الموردون:** متابعة بيانات الموردين والأرصدة المستحقة لهم أو عليهم.
+- **المبيعات والفواتير:** إنشاء فواتير متعددة الأصناف، ومتابعة المدفوع والمتبقي، وتسجيل مرتجعات الفواتير.
+- **المشتريات:** تسجيل المشتريات من الموردين وإرجاع أصناف منها.
+- **المدفوعات:** تسجيل تسديدات العملاء ومدفوعات الموردين وعمليات رد المبالغ.
+- **السحوبات:** تسجيل السحوبات المالية ومتابعتها.
+- **العملات:** التعامل بالليرة السورية (SYP) والدولار الأمريكي (USD)، وضبط سعر الصرف للفواتير.
+- **التقارير:** ملخصات مالية، وتقارير المدينين والدائنين والمخزون والمبيعات والأرباح الشهرية.
+- **التصدير والنسخ الاحتياطية:** تصدير الجداول إلى Excel، وإنشاء نسخ احتياطية وتنزيلها، وجدولتها وإرسالها بالبريد الإلكتروني بعد إعداد SMTP.
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## التقنيات المستخدمة
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+| المكوّن | التقنية |
+| --- | --- |
+| الخادم | PHP 8.3+ وLaravel 13 |
+| الواجهة | Blade وJavaScript وCSS، مع دعم RTL |
+| قاعدة البيانات | MySQL / MariaDB |
+| بناء الأصول | Vite 8 وTailwind CSS 4 |
+| ملفات Excel | Laravel Excel (`maatwebsite/excel`) |
+| الاختبارات | PHPUnit 12 |
 
-## Learning Laravel
+## متطلبات التشغيل
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+- PHP 8.3 أو أحدث، مع الإضافات المطلوبة بواسطة Composer، ومنها مشغّل MySQL.
+- Composer.
+- MySQL أو MariaDB، وقاعدة بيانات مخصصة للمشروع.
+- Node.js متوافق مع Vite 8، مثل Node.js 22.12+، وnpm.
+- Git لتنزيل المستودع.
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+يمكن استخدام Laragon للتشغيل المحلي على Windows.
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
+> **مهم:** ملف `.env.example` الافتراضي يستخدم SQLite، لكن بعض ملفات الترحيل الحالية تحتوي على أوامر خاصة بـ MySQL مثل `ALTER TABLE ... MODIFY`. اضبط الاتصال على MySQL قبل تنفيذ الترحيلات.
 
-## Agentic Development
+## التثبيت والتشغيل محليًا
 
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+### 1. تنزيل المشروع وتثبيت اعتماديات PHP
 
 ```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+git clone https://github.com/AyaAlMohmad/dashboard_car_parts.git
+cd dashboard_car_parts
+composer install
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+### 2. إعداد البيئة
 
-## Contributing
+انسخ `.env.example` إلى `.env`:
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+```bash
+cp .env.example .env
+```
 
-## Code of Conduct
+في موجه أوامر Windows (CMD)، استخدم `copy .env.example .env` بدلًا من `cp`.
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+أنشئ قاعدة بيانات فارغة باسم `dashboard_car_parts`، ثم عدّل إعدادات `.env` بما يناسب بيئتك:
 
-## Security Vulnerabilities
+```dotenv
+APP_NAME="Car Parts Dashboard"
+APP_ENV=local
+APP_DEBUG=true
+APP_URL=http://localhost:8000
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=dashboard_car_parts
+DB_USERNAME=your_database_user
+DB_PASSWORD=your_database_password
+```
 
-## License
+استبدل بيانات الاتصال بالقيم المحلية الفعلية، ولا ترفع ملف `.env` إلى المستودع.
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+### 3. تهيئة التطبيق وقاعدة البيانات
+
+نفّذ الأوامر التالية على قاعدة البيانات المخصصة للمشروع:
+
+```bash
+php artisan key:generate
+php artisan migrate
+```
+
+### 4. تثبيت اعتماديات الواجهة وبناء الأصول
+
+```bash
+npm install --ignore-scripts
+npm run build
+```
+
+### 5. تشغيل التطبيق
+
+```bash
+php artisan serve
+```
+
+افتح العنوان الذي يظهر في الطرفية، وعادةً يكون `http://localhost:8000`.
+
+لتطوير الأصول مع إعادة البناء أثناء التعديل، شغّل الأمر التالي في طرفية منفصلة:
+
+```bash
+npm run dev
+```
+
+عند استخدام Laragon أو خادم ويب آخر، اجعل جذر الموقع يشير إلى مجلد `public/`، وتأكد من قابلية الكتابة في `storage/` و`bootstrap/cache/`.
+
+## النسخ الاحتياطية والجدولة
+
+تتوفر إدارة النسخ الاحتياطية وجداولها وإعدادات البريد من صفحة **النسخ الاحتياطية** في التطبيق.
+
+لتفعيل المهام المجدولة محليًا، اترك الأمر التالي قيد التشغيل في طرفية منفصلة:
+
+```bash
+php artisan schedule:work
+```
+
+الجدولة المعرفة في المشروع تشمل:
+
+- إنشاء نسخة احتياطية يوميًا عند الساعة **02:00** بحسب المنطقة الزمنية للتطبيق.
+- فحص جداول النسخ الاحتياطية التي يحددها المستخدم كل دقيقة.
+
+يمكن إنشاء نسخة احتياطية يدويًا بالأمر:
+
+```bash
+php artisan backup:database
+```
+
+في بيئة الخادم، اضبط مجدول النظام لتنفيذ `php artisan schedule:run` كل دقيقة. أما ملفات `start-scheduler.bat` و`start-scheduler.vbs` المرفقة فتحتوي على مسارات محلية خاصة ببيئة Windows؛ راجعها وعدّلها لتناسب جهازك قبل استخدامها.
+
+## هيكل المشروع
+
+```text
+app/Http/Controllers/   منطق المخزون والفواتير والمدفوعات والتقارير
+app/Models/             نماذج البيانات والعلاقات
+app/Console/Commands/   أوامر النسخ الاحتياطي والجدولة
+database/migrations/   إنشاء الجداول وتحديث بنيتها
+database/seeders/      مولدات البيانات التجريبية
+resources/views/       صفحات الواجهة وقوالب Blade
+public/assets/         ملفات CSS وJavaScript المستخدمة في الواجهة
+routes/web.php         مسارات الصفحات
+routes/api.php         واجهات API للعمليات والتقارير
+routes/console.php     أوامر الطرفية والمهام المجدولة
+tests/                 اختبارات التطبيق
+```
+
+## الاختبارات
+
+بعد إعداد بيئة اختبار منفصلة، يمكن تشغيل الاختبارات بالأمر:
+
+```bash
+composer test
+```
+
+لا تستخدم قاعدة بيانات التشغيل الفعلية للاختبارات أو البيانات التجريبية.
+
+## ملاحظات قبل النشر
+
+- المسارات الحالية لا تتضمن نظام تسجيل دخول أو حماية بصلاحيات المستخدمين؛ أضف المصادقة والتفويض قبل إتاحة التطبيق على الإنترنت.
+- اضبط `APP_ENV=production` و`APP_DEBUG=false` واستخدم HTTPS عند النشر.
+- احفظ بيانات اتصال قاعدة البيانات والبريد في إعدادات آمنة، ولا تضف الأسرار أو النسخ الاحتياطية إلى Git.
+- احتفظ بنسخ احتياطية في مكان آمن خارج الخادم، وتحقق من إمكانية استعادتها دوريًا.
